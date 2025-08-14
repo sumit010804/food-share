@@ -359,12 +359,12 @@ export default function FoodListingsPage() {
                   <Badge variant="secondary" className="text-xs font-medium">
                     {listing.quantity}
                   </Badge>
-                  {listing.tags.slice(0, 2).map((tag, index) => (
+                  {(Array.isArray(listing.tags) ? listing.tags : []).slice(0, 2).map((tag, index) => (
                     <Badge key={index} variant="outline" className="text-xs">
                       {tag}
                     </Badge>
                   ))}
-                  {listing.tags.length > 2 && (
+                  {Array.isArray(listing.tags) && listing.tags.length > 2 && (
                     <Badge variant="outline" className="text-xs">
                       +{listing.tags.length - 2}
                     </Badge>
