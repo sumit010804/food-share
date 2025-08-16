@@ -41,19 +41,44 @@ export function NotificationBell() {
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [isOpen, setIsOpen] = useState(false)
   const [hasNewNotification, setHasNewNotification] = useState(false)
+  const [fetchError, setFetchError] = useState<string | null>(null)
 
   useEffect(() => {
-    fetchNotifications()
-    // Set up polling for real-time updates
-    const interval = setInterval(fetchNotifications, 30000) // Poll every 30 seconds
+    // Initial load and polling. Each fetch creates its own AbortController so
+    // quick failures or network issues are handled per-request.
+  fetchNotifications()
+    const interval = setInterval(() => fetchNotifications(), 30000) // Poll every 30 seconds
     return () => clearInterval(interval)
   }, [])
 
   const fetchNotifications = async () => {
+    const controller = new AbortController()
     try {
-      const response = await fetch("/api/notifications")
+      setFetchError(null)
+      // If a user is logged in, request notifications only for that user
+      const userData = localStorage.getItem("user")
+      const user = userData ? JSON.parse(userData) : null
+      const url = user && user.id ? `/api/notifications?userId=${user.id}` : "/api/notifications"
+      const response = await fetch(url, { signal: controller.signal })
+      if (!response.ok) {
+        throw new Error(`Failed to fetch notifications: HTTP ${response.status}`)
+      }
       const data = await response.json()
-      const newNotifications = data.notifications || []
+      // backend stores notifications with `read` boolean; client uses `isRead`
+      const newNotifications = (data.notifications || []).map((n: any) => ({
+        id: n.id,
+        type: n.type,
+        title: n.title,
+        message: n.message,
+        foodListingId: n.metadata?.foodListingId,
+        eventId: n.metadata?.eventId,
+        collectedBy: n.metadata?.collectorName,
+        donatedBy: n.metadata?.donorName,
+        collectionMethod: n.metadata?.collectionMethod,
+        isRead: !!n.read,
+        createdAt: n.createdAt,
+        priority: n.priority || "medium",
+      }))
 
       if (newNotifications.length > notifications.length) {
         setHasNewNotification(true)
@@ -61,8 +86,12 @@ export function NotificationBell() {
       }
 
       setNotifications(newNotifications)
-    } catch (error) {
+    } catch (error: any) {
+      // Abort errors are expected when a request is cancelled; don't treat them as fatal
+      if (error?.name === "AbortError") return
       console.error("Failed to fetch notifications:", error)
+      setFetchError((error && error.message) || "Failed to load notifications")
+      // keep previous notifications visible, do not wipe them
     }
   }
 
@@ -163,16 +192,24 @@ export function NotificationBell() {
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
 
-        {recentNotifications.length === 0 ? (
+        {fetchError ? (
+          <div className="p-6 text-center text-red-600 animate-fade-in">
+            <AlertTriangle className="h-8 w-8 mx-auto mb-2 text-red-400" />
+            <p className="text-sm font-medium">{fetchError}</p>
+            <p className="text-xs text-slate-500">Notifications are temporarily unavailable.</p>
+          </div>
+        ) : recentNotifications.length === 0 ? (
           <div className="p-6 text-center text-slate-500 animate-fade-in">
             <Bell className="h-8 w-8 mx-auto mb-2 text-slate-300" />
             <p className="text-sm">No notifications yet</p>
           </div>
         ) : (
           <>
-            {recentNotifications.map((notification, index) => (
+            {recentNotifications.map((notification, index) => {
+              const itemKey = notification.id ?? `${notification.type}-${index}-${new Date(notification.createdAt).getTime()}`
+              return (
               <DropdownMenuItem
-                key={notification.id}
+                key={itemKey}
                 className={`p-4 cursor-pointer transition-all duration-300 hover:bg-emerald-50 animate-slide-up ${
                   !notification.isRead
                     ? `bg-gradient-to-r from-emerald-50/50 to-white border-l-4 ${getNotificationBorderColor(notification.type)}`
@@ -227,7 +264,8 @@ export function NotificationBell() {
                   </div>
                 </div>
               </DropdownMenuItem>
-            ))}
+              )
+            })}
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild>
               <Link

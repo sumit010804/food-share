@@ -21,16 +21,56 @@ interface User {
 
 export default function DashboardPage() {
   const [user, setUser] = useState<User | null>(null)
+  const [users, setUsers] = useState<User[] | null>(null)
+  const [listings, setListings] = useState<any[] | null>(null)
+  const [analytics, setAnalytics] = useState<any | null>(null)
+  const [notifications, setNotifications] = useState<any[] | null>(null)
+  const [loadingData, setLoadingData] = useState(false)
+  const [dataError, setDataError] = useState<string | null>(null)
   const router = useRouter()
 
   useEffect(() => {
     const userData = localStorage.getItem("user")
     if (userData) {
       setUser(JSON.parse(userData))
+      // once we have user, fetch server data
+      fetchAllData()
     } else {
       router.push("/login")
     }
   }, [router])
+
+  async function fetchAllData() {
+    setLoadingData(true)
+    setDataError(null)
+    try {
+      const [uRes, lRes, aRes, nRes] = await Promise.all([
+        fetch('/api/users'),
+        fetch('/api/food-listings'),
+        fetch('/api/analytics'),
+        fetch('/api/notifications'),
+      ])
+
+      if (!uRes.ok || !lRes.ok || !aRes.ok || !nRes.ok) {
+        throw new Error('Failed to fetch one or more endpoints')
+      }
+
+      const uJson = await uRes.json()
+      const lJson = await lRes.json()
+      const aJson = await aRes.json()
+      const nJson = await nRes.json()
+
+      setUsers(uJson.users || null)
+      setListings(lJson.listings || [])
+      setAnalytics(aJson.analytics || null)
+      setNotifications(nJson.notifications || [])
+    } catch (err: any) {
+      console.error('fetchAllData error', err)
+      setDataError(err?.message || 'Failed to load data')
+    } finally {
+      setLoadingData(false)
+    }
+  }
 
   const handleLogout = () => {
     localStorage.removeItem("user")
@@ -215,27 +255,23 @@ export default function DashboardPage() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                <div className="flex items-center justify-between p-4 bg-gradient-to-r from-emerald-50 to-white rounded-xl border border-emerald-100 hover-lift">
-                  <div>
-                    <p className="font-semibold text-slate-800 text-lg">Vegetable Curry</p>
-                    <p className="text-slate-600">Main Canteen • 2 hours ago</p>
-                  </div>
-                  <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 font-medium">Available</Badge>
-                </div>
-                <div className="flex items-center justify-between p-4 bg-gradient-to-r from-amber-50 to-white rounded-xl border border-amber-100 hover-lift">
-                  <div>
-                    <p className="font-semibold text-slate-800 text-lg">Fresh Sandwiches</p>
-                    <p className="text-slate-600">Student Hostel • 4 hours ago</p>
-                  </div>
-                  <Badge className="bg-amber-100 text-amber-800 border-amber-200 font-medium">Expires Soon</Badge>
-                </div>
-                <div className="flex items-center justify-between p-4 bg-gradient-to-r from-red-50 to-white rounded-xl border border-red-100 hover-lift opacity-75">
-                  <div>
-                    <p className="font-semibold text-slate-800 text-lg">Event Leftovers</p>
-                    <p className="text-slate-600">Conference Hall • 6 hours ago</p>
-                  </div>
-                  <Badge className="bg-red-100 text-red-800 border-red-200 font-medium">Expired</Badge>
-                </div>
+                {loadingData ? (
+                  <div>Loading listings...</div>
+                ) : dataError ? (
+                  <div className="text-red-600">{dataError}</div>
+                ) : listings && listings.length > 0 ? (
+                  listings.slice(0, 5).map((l) => (
+                    <div key={l.id} className="flex items-center justify-between p-4 bg-gradient-to-r from-emerald-50 to-white rounded-xl border border-emerald-100 hover-lift">
+                      <div>
+                        <p className="font-semibold text-slate-800 text-lg">{l.title}</p>
+                        <p className="text-slate-600">{l.location} • {l.createdAt ? new Date(l.createdAt).toLocaleString() : ''}</p>
+                      </div>
+                      <Badge className={`font-medium ${l.status === 'available' ? 'bg-emerald-100 text-emerald-800 border-emerald-200' : l.status === 'expired' ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'}`}>{l.status}</Badge>
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-slate-500">No listings found.</div>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -250,22 +286,32 @@ export default function DashboardPage() {
             </CardHeader>
             <CardContent>
               <div className="space-y-6">
-                <div className="flex items-center justify-between p-4 bg-gradient-to-r from-emerald-50 to-white rounded-xl border border-emerald-100">
-                  <span className="text-slate-600 font-medium">Food Saved This Month</span>
-                  <span className="font-bold text-2xl gradient-primary bg-clip-text text-transparent">45.2 kg</span>
-                </div>
-                <div className="flex items-center justify-between p-4 bg-gradient-to-r from-blue-50 to-white rounded-xl border border-blue-100">
-                  <span className="text-slate-600 font-medium">People Served</span>
-                  <span className="font-bold text-2xl text-blue-600">127</span>
-                </div>
-                <div className="flex items-center justify-between p-4 bg-gradient-to-r from-green-50 to-white rounded-xl border border-green-100">
-                  <span className="text-slate-600 font-medium">CO₂ Saved</span>
-                  <span className="font-bold text-2xl text-green-600">89.4 kg</span>
-                </div>
-                <div className="flex items-center justify-between p-4 bg-gradient-to-r from-cyan-50 to-white rounded-xl border border-cyan-100">
-                  <span className="text-slate-600 font-medium">Water Saved</span>
-                  <span className="font-bold text-2xl text-cyan-600">2,156 L</span>
-                </div>
+                {loadingData ? (
+                  <div>Loading analytics...</div>
+                ) : dataError ? (
+                  <div className="text-red-600">{dataError}</div>
+                ) : analytics ? (
+                  <>
+                    <div className="flex items-center justify-between p-4 bg-gradient-to-r from-emerald-50 to-white rounded-xl border border-emerald-100">
+                      <span className="text-slate-600 font-medium">Food Saved This Month</span>
+                      <span className="font-bold text-2xl gradient-primary bg-clip-text text-transparent">{analytics.overview?.totalFoodSaved ?? 0} kg</span>
+                    </div>
+                    <div className="flex items-center justify-between p-4 bg-gradient-to-r from-blue-50 to-white rounded-xl border border-blue-100">
+                      <span className="text-slate-600 font-medium">People Served</span>
+                      <span className="font-bold text-2xl text-blue-600">{analytics.overview?.totalPeopleServed ?? 0}</span>
+                    </div>
+                    <div className="flex items-center justify-between p-4 bg-gradient-to-r from-green-50 to-white rounded-xl border border-green-100">
+                      <span className="text-slate-600 font-medium">CO₂ Saved</span>
+                      <span className="font-bold text-2xl text-green-600">{analytics.overview?.carbonFootprintSaved ?? 0} kg</span>
+                    </div>
+                    <div className="flex items-center justify-between p-4 bg-gradient-to-r from-cyan-50 to-white rounded-xl border border-cyan-100">
+                      <span className="text-slate-600 font-medium">Water Saved</span>
+                      <span className="font-bold text-2xl text-cyan-600">{analytics.overview?.waterFootprintSaved ?? 0} L</span>
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-slate-500">No analytics available.</div>
+                )}
               </div>
             </CardContent>
           </Card>

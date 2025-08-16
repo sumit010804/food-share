@@ -97,6 +97,28 @@ export function ProfileCircle({ user }: ProfileCircleProps) {
     return () => clearTimeout(timeout)
   }, [isHovered])
 
+  // Ping server to update lastActive timestamp so notifications can target online users
+  useEffect(() => {
+    const ping = async () => {
+      try {
+        const userData = localStorage.getItem("user")
+        if (!userData) return
+        const user = JSON.parse(userData)
+        await fetch("/api/users/heartbeat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId: user.id || user._id }),
+        })
+      } catch (err) {
+        // non-fatal
+      }
+    }
+
+    ping()
+    const interval = setInterval(ping, 60 * 1000) // every minute
+    return () => clearInterval(interval)
+  }, [])
+
   if (!user) {
     return null
   }

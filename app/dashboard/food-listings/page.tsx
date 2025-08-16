@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Leaf, LogOut, Plus, Search, MapPin, Clock, Users, AlertTriangle, Filter, Menu, QrCode } from "lucide-react"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { QRCodeDisplay } from "@/components/qr-code-display"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import Link from "next/link"
 
 interface User {
@@ -29,11 +30,18 @@ interface FoodListing {
   location: string
   availableUntil: string
   safetyHours: number
+  // optional extended fields returned by the API
+  unit?: string
+  safeToEatHours?: number
+  specialInstructions?: string
+  contactInfo?: string
+  provider?: any
+  raw?: any
   createdBy: string
   organization: string
   status: "available" | "reserved" | "expired" | "collected"
-  tags: string[]
-  createdAt: string
+  tags?: string[]
+  createdAt?: string
   qrCode?: boolean
   collectedBy?: string
   collectedAt?: string
@@ -43,6 +51,8 @@ export default function FoodListingsPage() {
   const [user, setUser] = useState<User | null>(null)
   const [listings, setListings] = useState<FoodListing[]>([])
   const [filteredListings, setFilteredListings] = useState<FoodListing[]>([])
+  const [selectedListing, setSelectedListing] = useState<FoodListing | null>(null)
+  const [dialogOpen, setDialogOpen] = useState(false)
   const [searchTerm, setSearchTerm] = useState("")
   const [filterType, setFilterType] = useState("all")
   const [filterStatus, setFilterStatus] = useState("all")
@@ -77,7 +87,7 @@ export default function FoodListingsPage() {
         (listing) =>
           listing.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
           listing.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          listing.organization.toLowerCase().includes(searchTerm.toLowerCase()),
+          (listing.organization || "").toLowerCase().includes(searchTerm.toLowerCase()),
       )
     }
 
@@ -91,6 +101,16 @@ export default function FoodListingsPage() {
 
     setFilteredListings(filtered)
   }, [listings, searchTerm, filterType, filterStatus])
+
+  useEffect(() => {
+    const onListingCreated = (e: Event) => {
+      // Re-fetch listings when a new listing is created in another tab/window
+      fetchListings()
+    }
+
+    window.addEventListener('listing:created', onListingCreated)
+    return () => window.removeEventListener('listing:created', onListingCreated)
+  }, [])
 
   const handleLogout = () => {
     localStorage.removeItem("user")
@@ -387,6 +407,10 @@ export default function FoodListingsPage() {
                     size="sm"
                     variant="outline"
                     className="flex-1 bg-transparent border-emerald-200 text-emerald-700 hover:bg-emerald-50 h-10 font-medium"
+                    onClick={() => {
+                      setSelectedListing(listing)
+                      setDialogOpen(true)
+                    }}
                   >
                     Details
                   </Button>
@@ -395,6 +419,109 @@ export default function FoodListingsPage() {
             </Card>
           ))}
         </div>
+
+        {/* Listing Details Dialog */}
+        <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open) setSelectedListing(null); setDialogOpen(open) }}>
+          <DialogContent className="max-w-3xl">
+            <DialogHeader>
+              <div className="flex items-start justify-between w-full">
+                <div>
+                  <DialogTitle>Listing Details</DialogTitle>
+                  <DialogDescription>Complete details for the selected listing and the user who posted it.</DialogDescription>
+                </div>
+                <div className="text-right">
+                  {selectedListing && (
+                    <Badge className={`${getStatusColor(selectedListing.status)} font-medium px-2 py-1 border`}>{selectedListing.status.charAt(0).toUpperCase() + selectedListing.status.slice(1)}</Badge>
+                  )}
+                </div>
+              </div>
+            </DialogHeader>
+
+            {selectedListing ? (
+              <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-6">
+                {/* Left: main listing details */}
+                <div className="md:col-span-2 space-y-4">
+                  <div>
+                    <h3 className="text-xl font-semibold">{selectedListing.title}</h3>
+                    <p className="text-sm text-slate-600 mt-1">{selectedListing.description}</p>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <p className="text-xs text-slate-500">Food Type</p>
+                      <p className="font-medium">{selectedListing.foodType}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-500">Quantity</p>
+                      <p className="font-medium">{selectedListing.quantity}{selectedListing.unit ? ` ${selectedListing.unit}` : ''}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-500">Location</p>
+                      <p className="font-medium">{selectedListing.location}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-500">Available Until</p>
+                      <p className="font-medium">{selectedListing.availableUntil ? new Date(selectedListing.availableUntil).toLocaleString() : 'N/A'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-500">Safe To Eat (hrs)</p>
+                      <p className="font-medium">{selectedListing.safetyHours ?? selectedListing.safeToEatHours ?? 'N/A'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-500">Tags / Dietary Info</p>
+                      <div className="flex flex-wrap gap-2 mt-1">
+                        {(selectedListing.tags || []).length > 0 ? (selectedListing.tags || []).map((t, i) => (
+                          <Badge key={i} variant="outline" className="text-xs">{t}</Badge>
+                        )) : <span className="text-sm text-slate-500">—</span>}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <p className="text-xs text-emerald-500">Special Instructions / Contact</p>
+                    <p className="font-medium text-emerald-800">{selectedListing.specialInstructions || selectedListing.contactInfo || 'None provided'}</p>
+                  </div>
+                </div>
+
+                {/* Right: provider / lister details */}
+                <div className="space-y-4">
+                  <div className="p-4 rounded-lg bg-gradient-to-br from-emerald-50 to-white border border-emerald-100 shadow-sm">
+                    <p className="text-xs text-emerald-500">Listed by</p>
+                    <p className="font-semibold mt-1 text-emerald-800">{(selectedListing as any).provider?.name || (selectedListing as any).providerName || 'Unknown'}</p>
+                    <p className="text-xs text-emerald-500 mt-2">Organization</p>
+                    <p className="font-medium text-emerald-700">{selectedListing.organization || (selectedListing as any).provider?.organization || '—'}</p>
+
+                    <div className="mt-3 text-sm text-emerald-700">
+                      {((selectedListing as any).provider?.email || (selectedListing as any).provider?.contact || null) && (
+                        <p className="truncate"><strong className="text-emerald-600">Email:</strong> {(selectedListing as any).provider?.email || (selectedListing as any).provider?.contact}</p>
+                      )}
+                      {((selectedListing as any).provider?.phone || (selectedListing as any).provider?.phoneNumber || null) && (
+                        <p className="mt-1 truncate"><strong className="text-emerald-600">Phone:</strong> {(selectedListing as any).provider?.phone || (selectedListing as any).provider?.phoneNumber}</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {selectedListing.qrCode && (
+                    <div className="p-4 rounded-lg bg-gradient-to-tr from-cyan-50 to-white border border-cyan-100 flex flex-col items-start">
+                      <p className="text-xs text-cyan-500">QR Code</p>
+                      <div className="mt-2">
+                        <QRCodeDisplay listing={selectedListing} />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div>Loading...</div>
+            )}
+
+            <DialogFooter>
+              <div className="w-full flex justify-end">
+                <Button onClick={() => setDialogOpen(false)} variant="outline">Close</Button>
+              </div>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* Empty State */}
         {filteredListings.length === 0 && (

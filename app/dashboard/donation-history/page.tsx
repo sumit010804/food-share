@@ -60,92 +60,7 @@ interface CollectionRecord {
   collectionMethod: "qr_scan" | "manual" | "direct"
 }
 
-const mockDonationHistory: DonationRecord[] = [
-  {
-    id: "1",
-    foodItem: "Vegetable Curry",
-    quantity: "5.2 kg",
-    donatedTo: "Rahul Kumar",
-    recipientType: "student",
-    receivedTime: "2024-01-15T14:30:00Z",
-    location: "Main Canteen",
-    status: "collected",
-    impactMetrics: { co2Saved: 10.4, waterSaved: 156, peopleFed: 8 },
-    collectedBy: "Rahul Kumar",
-    collectedAt: "2024-01-15T15:45:00Z",
-    qrCodeGenerated: true,
-    collectionMethod: "qr_scan",
-  },
-  {
-    id: "2",
-    foodItem: "Fresh Sandwiches",
-    quantity: "3.8 kg",
-    donatedTo: "Green Earth NGO",
-    recipientType: "ngo",
-    receivedTime: "2024-01-14T16:45:00Z",
-    location: "Student Hostel",
-    status: "collected",
-    impactMetrics: { co2Saved: 7.6, waterSaved: 114, peopleFed: 6 },
-    collectedBy: "Priya Sharma (Green Earth NGO)",
-    collectedAt: "2024-01-14T17:20:00Z",
-    qrCodeGenerated: true,
-    collectionMethod: "qr_scan",
-  },
-  {
-    id: "3",
-    foodItem: "Rice & Dal",
-    quantity: "8.1 kg",
-    donatedTo: "Priya Sharma",
-    recipientType: "staff",
-    receivedTime: "2024-01-13T12:15:00Z",
-    location: "Conference Hall",
-    status: "completed",
-    impactMetrics: { co2Saved: 16.2, waterSaved: 243, peopleFed: 12 },
-    qrCodeGenerated: true,
-    collectionMethod: "direct",
-  },
-  {
-    id: "4",
-    foodItem: "Fruit Salad",
-    quantity: "2.5 kg",
-    donatedTo: "Community Kitchen",
-    recipientType: "community",
-    receivedTime: "2024-01-12T18:20:00Z",
-    location: "Event Hall",
-    status: "collected",
-    impactMetrics: { co2Saved: 5.0, waterSaved: 75, peopleFed: 4 },
-    collectedBy: "Amit Verma (Community Kitchen)",
-    collectedAt: "2024-01-12T19:00:00Z",
-    qrCodeGenerated: true,
-    collectionMethod: "manual",
-  },
-  {
-    id: "5",
-    foodItem: "Pasta & Sauce",
-    quantity: "4.3 kg",
-    donatedTo: "Amit Patel",
-    recipientType: "student",
-    receivedTime: "2024-01-11T13:00:00Z",
-    location: "Main Canteen",
-    status: "pending",
-    impactMetrics: { co2Saved: 8.6, waterSaved: 129, peopleFed: 7 },
-    qrCodeGenerated: true,
-    collectionMethod: "qr_scan",
-  },
-  {
-    id: "6",
-    foodItem: "Bread & Butter",
-    quantity: "1.8 kg",
-    donatedTo: "Hope Foundation",
-    recipientType: "ngo",
-    receivedTime: "2024-01-10T15:30:00Z",
-    location: "Library Cafe",
-    status: "cancelled",
-    impactMetrics: { co2Saved: 3.6, waterSaved: 54, peopleFed: 3 },
-    qrCodeGenerated: false,
-  },
-]
-
+// real data will be loaded from the server
 const mockCollectionHistory: CollectionRecord[] = [
   {
     id: "1",
@@ -187,9 +102,9 @@ const monthlyDonationData = [
 
 export default function DonationHistoryPage() {
   const [user, setUser] = useState<any>(null)
-  const [donations, setDonations] = useState<DonationRecord[]>(mockDonationHistory)
+  const [donations, setDonations] = useState<DonationRecord[]>([])
   const [collections, setCollections] = useState<CollectionRecord[]>(mockCollectionHistory)
-  const [filteredDonations, setFilteredDonations] = useState<DonationRecord[]>(mockDonationHistory)
+  const [filteredDonations, setFilteredDonations] = useState<DonationRecord[]>([])
   const [filteredCollections, setFilteredCollections] = useState<CollectionRecord[]>(mockCollectionHistory)
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
@@ -202,10 +117,23 @@ export default function DonationHistoryPage() {
     if (userData) {
       setUser(JSON.parse(userData))
       loadCollectionData()
+      loadDonationData()
     } else {
       router.push("/login")
     }
   }, [router])
+
+  const loadDonationData = async () => {
+    try {
+      const res = await fetch("/api/donations")
+      if (res.ok) {
+        const data = await res.json()
+        setDonations(data.donations || [])
+      }
+    } catch (err) {
+      console.error("Failed to load donations:", err)
+    }
+  }
 
   const loadCollectionData = async () => {
     try {

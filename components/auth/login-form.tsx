@@ -23,14 +23,23 @@ export function LoginForm() {
     e.preventDefault()
     setIsLoading(true)
     setError("")
+    const validateEmail = (email: string) => {
+      const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+      return re.test(String(email).trim().toLowerCase())
+    }
 
+    if (!validateEmail(email)) {
+      setError("Please enter a valid email address")
+      setIsLoading(false)
+      return
+    }
     try {
       const response = await fetch("/api/auth/login", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ email, password }),
+  body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
       })
 
       const data = await response.json()

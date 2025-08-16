@@ -165,7 +165,7 @@ export default function EventsPage() {
       (event) =>
         event.status === "completed" &&
         !event.foodLogged &&
-        event.foodPrediction.expectedSurplus > 0 &&
+  (event.foodPrediction?.expectedSurplus ?? 0) > 0 &&
         new Date(event.endTime) > new Date(Date.now() - 24 * 60 * 60 * 1000), // Within last 24 hours
     )
   }
@@ -314,9 +314,9 @@ export default function EventsPage() {
                             <Badge className={getStatusColor(event.status)}>
                               {event.status.charAt(0).toUpperCase() + event.status.slice(1)}
                             </Badge>
-                            {event.foodPrediction.expectedSurplus > 0 && (
+                            {(event.foodPrediction?.expectedSurplus ?? 0) > 0 && (
                               <Badge variant="outline" className="text-xs">
-                                {event.foodPrediction.expectedSurplus}kg surplus
+                                {event.foodPrediction?.expectedSurplus ?? 0}kg surplus
                               </Badge>
                             )}
                           </div>
@@ -338,7 +338,7 @@ export default function EventsPage() {
                         <div className="flex items-center gap-2">
                           {event.status === "completed" &&
                             !event.foodLogged &&
-                            event.foodPrediction.expectedSurplus > 0 && (
+                            (event.foodPrediction?.expectedSurplus ?? 0) > 0 && (
                               <Button
                                 size="sm"
                                 onClick={() => {
@@ -395,13 +395,13 @@ export default function EventsPage() {
                       <span>{event.expectedAttendees} expected attendees</span>
                     </div>
 
-                    {event.foodPrediction.expectedSurplus > 0 && (
+                    {(event.foodPrediction?.expectedSurplus ?? 0) > 0 && (
                       <div className="flex items-center justify-between p-2 bg-amber-50 rounded-lg">
                         <span className="text-sm text-amber-800">
-                          Predicted surplus: {event.foodPrediction.expectedSurplus}kg
+                          Predicted surplus: {event.foodPrediction?.expectedSurplus ?? 0}kg
                         </span>
-                        <Badge className={getConfidenceColor(event.foodPrediction.confidence)} variant="secondary">
-                          {event.foodPrediction.confidence}
+                        <Badge className={getConfidenceColor(event.foodPrediction?.confidence ?? "") } variant="secondary">
+                          {event.foodPrediction?.confidence ?? "N/A"}
                         </Badge>
                       </div>
                     )}
@@ -444,10 +444,7 @@ export default function EventsPage() {
                 <CardContent>
                   <div className="space-y-4">
                     {filteredEvents
-                      .filter(
-                        (event) =>
-                          event.foodPrediction.confidence === "high" && event.foodPrediction.expectedSurplus > 5,
-                      )
+                      .filter((event) => (event.foodPrediction?.confidence ?? "") === "high" && (event.foodPrediction?.expectedSurplus ?? 0) > 5)
                       .map((event) => (
                         <div
                           key={event.id}
@@ -507,7 +504,7 @@ export default function EventsPage() {
                           const weekFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
                           return eventDate >= now && eventDate <= weekFromNow
                         })
-                        .reduce((sum, e) => sum + e.foodPrediction.expectedSurplus, 0)}
+                        .reduce((sum, e) => sum + (e.foodPrediction?.expectedSurplus ?? 0), 0)}
                       kg
                     </div>
                     <p className="text-sm text-slate-600">Expected this week</p>

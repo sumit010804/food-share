@@ -1,11 +1,12 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { storage } from "@/lib/local-storage"
+import { getDatabase } from "@/lib/mongodb"
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
   try {
+    const db = await getDatabase()
     const notificationId = params.id
 
-    storage.updateNotification(notificationId, { read: true })
+    await db.collection("notifications").updateOne({ id: notificationId }, { $set: { read: true } })
 
     return NextResponse.json({
       message: "Notification marked as read",

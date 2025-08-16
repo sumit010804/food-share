@@ -34,12 +34,18 @@ function Badge({
   VariantProps<typeof badgeVariants> & { asChild?: boolean }) {
   const Comp = asChild ? Slot : "span"
 
+  // Sanitize children to avoid React warnings when NaN is accidentally passed.
+  const { children, ...rest } = props as any
+  const safeChildren = typeof children === "number" && isNaN(children) ? "" : children
+
   return (
     <Comp
       data-slot="badge"
       className={cn(badgeVariants({ variant }), className)}
-      {...props}
-    />
+      {...rest}
+    >
+      {safeChildren}
+    </Comp>
   )
 }
 

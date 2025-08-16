@@ -1,30 +1,23 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { storage } from "@/lib/local-storage"
+import { getDatabase } from "@/lib/mongodb"
 import type { Notification } from "@/lib/types"
 
 export async function GET(request: NextRequest) {
   try {
+    const db = await getDatabase()
     const { searchParams } = new URL(request.url)
     const userId = searchParams.get("userId")
 
-    let notifications: Notification[]
-
-    if (userId) {
-      // Get notifications for specific user
-      notifications = storage.getUserNotifications(userId)
-    } else {
-      // Get all notifications (for admin or broadcast purposes)
-      notifications = storage.getNotifications()
-    }
-
-    // Sort notifications by creation date (newest first)
-    const sortedNotifications = notifications.sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-    )
+    const query = userId ? { userId } : {}
+    const notifications = (await db
+      .collection<Notification>("notifications")
+      .find(query)
+      .sort({ createdAt: -1 })
+      .toArray()) as unknown as Notification[]
 
     return NextResponse.json({
       message: "Notifications retrieved successfully",
-      notifications: sortedNotifications,
+      notifications,
     })
   } catch (error) {
     return NextResponse.json({ message: "Internal server error" }, { status: 500 })
@@ -33,18 +26,23 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const db = await getDatabase()
     const data = await request.json()
 
-    // Check if this is a broadcast notification (no specific userId)
+    // Broadcast to all users when no specific recipient is provided
     if (!data.userId && !data.recipient) {
-      // Broadcast to all users
-      const notification = {
-        id: Date.now().toString(),
+      const users = await db.collection("users").find({}).project({ id: 1 }).toArray()
+      const baseId = Date.now().toString()
+      const createdAt = new Date().toISOString()
+
+      const docs: Notification[] = users.map((u: any) => ({
+        id: `${baseId}-${u.id}`,
+        userId: u.id,
         type: data.type,
         title: data.title,
         message: data.message,
         read: false,
-        createdAt: new Date().toISOString(),
+        createdAt,
         priority: data.priority || "medium",
         actionUrl: data.actionUrl,
         metadata: {
@@ -54,18 +52,20 @@ export async function POST(request: NextRequest) {
           donorName: data.donatedBy,
           collectionMethod: data.collectionMethod,
         },
-      }
+      }))
 
-      storage.broadcastNotification(notification)
+      if (docs.length > 0) {
+        await db.collection("notifications").insertMany(docs)
+      }
 
       return NextResponse.json({
         message: "Notification broadcasted successfully",
-        notification,
+        count: docs.length,
       })
     }
 
     // Create targeted notification
-    const newNotification: Notification = {
+    const notification: Notification = {
       id: Date.now().toString(),
       userId: data.userId || data.recipient,
       type: data.type,
@@ -84,11 +84,11 @@ export async function POST(request: NextRequest) {
       },
     }
 
-    storage.addNotification(newNotification)
+    await db.collection("notifications").insertOne(notification)
 
     return NextResponse.json({
       message: "Notification created successfully",
-      notification: newNotification,
+      notification,
     })
   } catch (error) {
     return NextResponse.json({ message: "Internal server error" }, { status: 500 })

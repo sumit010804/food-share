@@ -31,6 +31,16 @@ export function SignupForm() {
     e.preventDefault()
     setIsLoading(true)
     setError("")
+    const validateEmail = (email: string) => {
+      const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+      return re.test(String(email).trim().toLowerCase())
+    }
+
+    if (!validateEmail(formData.email)) {
+      setError("Please enter a valid email address")
+      setIsLoading(false)
+      return
+    }
 
     if (formData.password !== formData.confirmPassword) {
       setError("Passwords do not match")
@@ -46,7 +56,7 @@ export function SignupForm() {
         },
         body: JSON.stringify({
           name: formData.name,
-          email: formData.email,
+          email: formData.email.trim().toLowerCase(),
           password: formData.password,
           userType: formData.userType,
           organization: formData.organization,

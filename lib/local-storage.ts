@@ -2,9 +2,14 @@ import type { User, FoodListing, Notification, Event, AnalyticsData, DonationRec
 
 export class LocalStorageManager {
   private static instance: LocalStorageManager
+  private isBrowser: boolean
+  private memoryStore: Map<string, string>
 
   private constructor() {
-    this.initializeData()
+  // Detect if running in a browser environment with localStorage
+  this.isBrowser = typeof window !== "undefined" && typeof window.localStorage !== "undefined"
+  this.memoryStore = new Map()
+  this.initializeData()
   }
 
   public static getInstance(): LocalStorageManager {
@@ -41,8 +46,13 @@ export class LocalStorageManager {
 
   private getItem<T>(key: string): T | null {
     try {
-      const item = localStorage.getItem(key)
-      return item ? JSON.parse(item) : null
+      if (this.isBrowser) {
+        const item = window.localStorage.getItem(key)
+        return item ? JSON.parse(item) : null
+      } else {
+        const item = this.memoryStore.get(key)
+        return item ? JSON.parse(item) : null
+      }
     } catch (error) {
       console.error(`Error getting ${key} from localStorage:`, error)
       return null
@@ -51,7 +61,12 @@ export class LocalStorageManager {
 
   private setItem<T>(key: string, value: T): void {
     try {
-      localStorage.setItem(key, JSON.stringify(value))
+      const serialized = JSON.stringify(value)
+      if (this.isBrowser) {
+        window.localStorage.setItem(key, serialized)
+      } else {
+        this.memoryStore.set(key, serialized)
+      }
     } catch (error) {
       console.error(`Error setting ${key} in localStorage:`, error)
     }

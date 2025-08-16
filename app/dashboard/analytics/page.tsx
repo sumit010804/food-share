@@ -434,7 +434,7 @@ export default function AnalyticsPage() {
                         cy="50%"
                         outerRadius={80}
                         dataKey="amount"
-                        label={({ type, percent }) => `${type} ${(percent * 100).toFixed(0)}%`}
+                        label={({ type, percent }) => `${type} ${(((percent ?? 0) * 100) | 0).toString()}%`}
                       >
                         {analyticsData.breakdown.foodTypeDistribution.map((entry, index) => (
                           <Cell key={`cell-${index}`} fill={entry.color} />

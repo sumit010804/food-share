@@ -97,9 +97,13 @@ export default function CreateFoodListingPage() {
 
       if (response.ok) {
         setSuccess("Food listing created successfully!")
-        setTimeout(() => {
-          router.push("/dashboard/food-listings")
-        }, 2000)
+        // Notify other windows/frames and immediately navigate to listings so the lister sees the new item
+        try {
+          window.dispatchEvent(new CustomEvent('listing:created', { detail: { id: data.listing?.id } }))
+        } catch (e) {
+          // ignore if window not available in test env
+        }
+        router.push("/dashboard/food-listings")
       } else {
         setError(data.message || "Failed to create listing")
       }

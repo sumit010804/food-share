@@ -198,7 +198,7 @@ export default function NotificationsPage() {
           </div>
           <div className="flex items-center gap-4">
             <Badge className={getUserTypeColor(user.userType)}>
-              {user.userType.charAt(0).toUpperCase() + user.userType.slice(1)}
+        {user.userType ? (user.userType.charAt(0).toUpperCase() + user.userType.slice(1)) : ""}
             </Badge>
             <span className="text-slate-700">Welcome, {user.name}</span>
             <Button
@@ -385,9 +385,9 @@ export default function NotificationsPage() {
                 </CardContent>
               </Card>
             ) : (
-              filteredNotifications.map((notification) => (
+              filteredNotifications.map((notification, idx) => (
                 <Card
-                  key={notification.id}
+                  key={notification.id ?? `${notification.type}-${idx}`}
                   className={`border-slate-200 transition-all hover:shadow-md ${
                     !notification.isRead ? "bg-cyan-50/50 border-cyan-200" : ""
                   }`}
