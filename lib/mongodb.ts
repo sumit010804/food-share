@@ -1,38 +1,38 @@
 import { MongoClient, type Db } from "mongodb"
 
-if (!process.env.MONGODB_URI) {
-  throw new Error('Invalid/Missing environment variable: "MONGODB_URI"')
-}
+// Delay validation of MONGODB_URI until runtime to avoid Next.js
+// build-time failures when pages/controllers import this module.
+let clientPromise: Promise<MongoClient> | null = null
 
-const uri = process.env.MONGODB_URI
-const options = {}
-
-let client: MongoClient
-let clientPromise: Promise<MongoClient>
-
-if (process.env.NODE_ENV === "development") {
-  // In development mode, use a global variable so that the value
-  // is preserved across module reloads caused by HMR (Hot Module Replacement).
-  const globalWithMongo = global as typeof globalThis & {
-    _mongoClientPromise?: Promise<MongoClient>
+function createClientPromise(): Promise<MongoClient> {
+  const uri = process.env.MONGODB_URI
+  if (!uri) {
+    throw new Error('Invalid/Missing environment variable: "MONGODB_URI"')
   }
 
-  if (!globalWithMongo._mongoClientPromise) {
-    client = new MongoClient(uri, options)
-    globalWithMongo._mongoClientPromise = client.connect()
+  const options = {}
+  const client = new MongoClient(uri, options)
+
+  if (process.env.NODE_ENV === "development") {
+    // Preserve the promise across HMR reloads in development.
+    const globalWithMongo = global as typeof globalThis & {
+      _mongoClientPromise?: Promise<MongoClient>
+    }
+    if (!globalWithMongo._mongoClientPromise) {
+      globalWithMongo._mongoClientPromise = client.connect()
+    }
+    return globalWithMongo._mongoClientPromise
   }
-  clientPromise = globalWithMongo._mongoClientPromise
-} else {
-  // In production mode, it's best to not use a global variable.
-  client = new MongoClient(uri, options)
-  clientPromise = client.connect()
+
+  return client.connect()
 }
 
-// Export a module-scoped MongoClient promise. By doing this in a
-// separate module, the client can be shared across functions.
-export default clientPromise
+export default async function getClient(): Promise<MongoClient> {
+  if (!clientPromise) clientPromise = createClientPromise()
+  return clientPromise
+}
 
 export async function getDatabase(): Promise<Db> {
-  const client = await clientPromise
+  const client = await getClient()
   return client.db("foodshare")
 }
