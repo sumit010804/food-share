@@ -43,30 +43,49 @@ export function NotificationBell() {
   const [hasNewNotification, setHasNewNotification] = useState(false)
   const [fetchError, setFetchError] = useState<string | null>(null)
 
-  useEffect(() => {
-    // Initial load and polling. Each fetch creates its own AbortController so
-    // quick failures or network issues are handled per-request.
-  fetchNotifications()
-    const interval = setInterval(() => fetchNotifications(), 30000) // Poll every 30 seconds
-    return () => clearInterval(interval)
-  }, [])
+  // resilient fetchNotifications with per-request AbortController and cleanup
+  let currentController: AbortController | null = null
+  let mounted = true
 
   const fetchNotifications = async () => {
+    // abort any previous inflight request
+    if (currentController) {
+      try {
+        currentController.abort()
+      } catch (e) {
+        // ignore
+      }
+    }
     const controller = new AbortController()
+    currentController = controller
+
     try {
       setFetchError(null)
-      // If a user is logged in, request notifications only for that user
-      const userData = localStorage.getItem("user")
-      const user = userData ? JSON.parse(userData) : null
-      const url = user && user.id ? `/api/notifications?userId=${user.id}` : "/api/notifications"
-      const response = await fetch(url, { signal: controller.signal })
-      if (!response.ok) {
-        throw new Error(`Failed to fetch notifications: HTTP ${response.status}`)
+      // Read user id safely from localStorage
+      let userId: string | null = null
+      try {
+        const userRaw = localStorage.getItem("user")
+        if (userRaw) {
+          const parsed = JSON.parse(userRaw)
+          userId = parsed?.id || parsed?._id || null
+        }
+      } catch (e) {
+        // parsing failed, fallback to null
+        userId = null
       }
+
+      const url = userId ? `/api/notifications?userId=${encodeURIComponent(userId)}` : "/api/notifications"
+      const response = await fetch(url, { signal: controller.signal, cache: "no-store" })
+      if (!mounted) return
+      if (!response.ok) {
+        const text = await response.text().catch(() => "")
+        throw new Error(`HTTP ${response.status} ${response.statusText} ${text}`)
+      }
+
       const data = await response.json()
-      // backend stores notifications with `read` boolean; client uses `isRead`
-      const newNotifications = (data.notifications || []).map((n: any) => ({
-        id: n.id,
+      const incoming = (data.notifications || data || []) as any[]
+      const newNotifications = incoming.map((n: any) => ({
+        id: n.id || n._id || String(n.id),
         type: n.type,
         title: n.title,
         message: n.message,
@@ -75,11 +94,12 @@ export function NotificationBell() {
         collectedBy: n.metadata?.collectorName,
         donatedBy: n.metadata?.donorName,
         collectionMethod: n.metadata?.collectionMethod,
-        isRead: !!n.read,
-        createdAt: n.createdAt,
+        isRead: !!(n.read || n.isRead),
+        createdAt: n.createdAt || n.created_at || new Date().toISOString(),
         priority: n.priority || "medium",
       }))
 
+      if (!mounted) return
       if (newNotifications.length > notifications.length) {
         setHasNewNotification(true)
         setTimeout(() => setHasNewNotification(false), 2000)
@@ -87,13 +107,28 @@ export function NotificationBell() {
 
       setNotifications(newNotifications)
     } catch (error: any) {
-      // Abort errors are expected when a request is cancelled; don't treat them as fatal
       if (error?.name === "AbortError") return
-      console.error("Failed to fetch notifications:", error)
+      console.error("notification-bell: fetchNotifications error:", error)
+      if (!mounted) return
       setFetchError((error && error.message) || "Failed to load notifications")
-      // keep previous notifications visible, do not wipe them
+      // keep previous notifications
     }
   }
+
+  useEffect(() => {
+    mounted = true
+    fetchNotifications()
+    const interval = window.setInterval(fetchNotifications, 30000)
+    return () => {
+      mounted = false
+      try {
+        if (currentController) currentController.abort()
+      } catch (e) {
+        // ignore
+      }
+      clearInterval(interval)
+    }
+  }, [])
 
   const markAsRead = async (notificationId: string) => {
     try {
