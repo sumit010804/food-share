@@ -75,8 +75,40 @@ export async function POST(request: NextRequest) {
 
       await foodListingsCol.updateOne({ $or: listingQueries2 }, { $set: { status: 'collected', collectedAt: new Date(), collectedBy } })
 
-      // Insert a donation record
-      const donationDoc = {
+      // Determine weight/quantity for the donation. Prefer explicit fields if present.
+      const candidates = [existing.quantity, existing.weight, existing.raw?.quantity, existing.listingQuantity, existing.listingQty]
+      let foodKg = 0
+      // Try to parse numeric values if present (very small heuristic parser)
+      for (const c of candidates) {
+        if (!c) continue
+        try {
+          const s = String(c).trim()
+          // common formats: "5", "5 kg", "500 g"
+          const mKg = s.match(/([0-9]+(?:\.[0-9]+)?)\s*(kg|kgs|kilograms?)$/i)
+          const mG = s.match(/([0-9]+(?:\.[0-9]+)?)\s*(g|grams?)$/i)
+          const mNum = s.match(/^[0-9]+(?:\.[0-9]+)?$/)
+          if (mKg) { foodKg = Number(mKg[1]); break }
+          if (mG) { foodKg = Number(mG[1]) / 1000; break }
+          if (mNum) { foodKg = Number(mNum[0]); break }
+        } catch (e) { /* ignore parse */ }
+      }
+
+      // Fallback: if no quantity found, assume 2kg as a conservative default
+      if (!foodKg) foodKg = 2
+
+  // Impact multipliers: 1 kg => 2.5 kg CO2
+  const CO2_PER_KG = 2.5
+      const WATER_L_PER_KG = 500
+
+      const impactMetrics = {
+        foodKg,
+        co2Saved: Number((foodKg * CO2_PER_KG).toFixed(2)),
+        waterSaved: Math.round(foodKg * WATER_L_PER_KG),
+        peopleFed: 1, // conservative: counts as one served; UI aggregates unique recipients separately
+      }
+
+      // Insert a donation record including computed impact metrics
+      const donationDoc: any = {
         id: `donation-${existing.listingId || listingId}-${Date.now()}`,
         donorId: existing.donorId || existing.donatedBy || null,
         donorName: existing.donatedBy || existing.donorName || null,
@@ -86,10 +118,13 @@ export async function POST(request: NextRequest) {
         collectedAt,
         createdAt: new Date().toISOString(),
         status: 'collected',
+        quantity: existing.quantity || null,
+        weight: foodKg,
+        impactMetrics,
       }
       const ins = await donationsCol.insertOne(donationDoc)
 
-      // Update analytics incrementally for this donation
+      // Update analytics incrementally for this donation using explicit impact metrics
       try {
         const savedDonation = { ...donationDoc, _id: ins.insertedId }
         await updateAnalyticsForDonation(db, savedDonation)

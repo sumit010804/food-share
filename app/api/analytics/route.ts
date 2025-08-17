@@ -33,7 +33,7 @@ async function generateAnalyticsFromDB(timeRange: string) {
   })
 
   const recentDonations = donations.filter((donation: any) => {
-    const d = toDate(donation.donatedAt)
+    const d = toDate(donation.donatedAt) || toDate(donation.collectedAt) || toDate(donation.createdAt)
     return d && d >= startDate
   })
 
@@ -42,12 +42,55 @@ async function generateAnalyticsFromDB(timeRange: string) {
     return d && d >= startDate
   })
 
-  // Calculate totals from real data
-  const totalFoodSaved = recentDonations.length * 2.5 // Assume 2.5kg average per donation
-  const totalPeopleServed = recentDonations.reduce((sum: number, donation: any) => sum + ((donation.impactMetrics && donation.impactMetrics.peopleServed) || 0), 0)
+  // Helper to extract weight in kg from a donation record
+  const parseKgFromQuantity = (q: any) => {
+    if (!q) return 0
+    try {
+      const s = String(q).trim().toLowerCase()
+      const mKg = s.match(/([0-9]+(?:\.[0-9]+)?)\s*(kg|kgs|kilograms?)$/i)
+      const mG = s.match(/([0-9]+(?:\.[0-9]+)?)\s*(g|grams?)$/i)
+      const mNum = s.match(/^([0-9]+(?:\.[0-9]+)?)/)
+      if (mKg) return Number(mKg[1])
+      if (mG) return Number(mG[1]) / 1000
+      if (mNum) return Number(mNum[1])
+    } catch (e) {}
+    return 0
+  }
+
+  const CO2_PER_KG = 2.5
+  const WATER_L_PER_KG = 500
+
+  const totalFoodSaved = recentDonations.reduce((sum: number, donation: any) => {
+    const impact = donation.impactMetrics || {}
+    if (impact.foodKg) return sum + Number(impact.foodKg)
+    if (donation.weight) return sum + Number(donation.weight)
+    const q = donation.quantity || donation.raw?.quantity || null
+    const parsed = parseKgFromQuantity(q)
+    if (parsed) return sum + parsed
+    return sum
+  }, 0)
+
+  const totalPeopleServed = recentDonations.reduce((sum: number, donation: any) => {
+    const impact = donation.impactMetrics || {}
+    return sum + (Number(impact.peopleFed || impact.peopleServed || 0) || 0)
+  }, 0)
+
   const totalListings = recentListings.length
-  const carbonFootprintSaved = recentDonations.reduce((sum: number, donation: any) => sum + ((donation.impactMetrics && donation.impactMetrics.carbonSaved) || 0), 0)
-  const waterFootprintSaved = recentDonations.reduce((sum: number, donation: any) => sum + ((donation.impactMetrics && donation.impactMetrics.waterSaved) || 0), 0)
+
+  const carbonFootprintSaved = recentDonations.reduce((sum: number, donation: any) => {
+    const impact = donation.impactMetrics || {}
+    if (impact.co2Saved) return sum + Number(impact.co2Saved)
+    // fallback: compute from available weight
+    const kg = Number(impact.foodKg || donation.weight || parseKgFromQuantity(donation.quantity || donation.raw?.quantity)) || 0
+    return sum + kg * CO2_PER_KG
+  }, 0)
+
+  const waterFootprintSaved = recentDonations.reduce((sum: number, donation: any) => {
+    const impact = donation.impactMetrics || {}
+    if (impact.waterSaved) return sum + Number(impact.waterSaved)
+    const kg = Number(impact.foodKg || donation.weight || parseKgFromQuantity(donation.quantity || donation.raw?.quantity)) || 0
+    return sum + kg * WATER_L_PER_KG
+  }, 0)
 
   // Generate trend data based on real data
   const foodSavedTrend: Array<any> = []
@@ -64,26 +107,47 @@ async function generateAnalyticsFromDB(timeRange: string) {
       return d && d.toISOString().split("T")[0] === dateStr
     })
 
-    const dayCollections = recentCollections.filter((collection: any) => {
-      const d = toDate(collection.collectedAt || collection.reservedAt)
+    const dayDonations = recentDonations.filter((donation: any) => {
+      const d = toDate(donation.donatedAt) || toDate(donation.collectedAt) || toDate(donation.createdAt)
       return d && d.toISOString().split("T")[0] === dateStr
     })
 
+    const amountKg = dayDonations.reduce((s: number, d: any) => {
+      const impact = d.impactMetrics || {}
+      if (impact.foodKg) return s + Number(impact.foodKg)
+      if (d.weight) return s + Number(d.weight)
+      return s + (parseKgFromQuantity(d.quantity || d.raw?.quantity) || 0)
+    }, 0)
+
+    const carbonDay = dayDonations.reduce((s: number, d: any) => {
+      const impact = d.impactMetrics || {}
+      if (impact.co2Saved) return s + Number(impact.co2Saved)
+      const kg = Number(impact.foodKg || d.weight || parseKgFromQuantity(d.quantity || d.raw?.quantity)) || 0
+      return s + kg * CO2_PER_KG
+    }, 0)
+
+    const waterDay = dayDonations.reduce((s: number, d: any) => {
+      const impact = d.impactMetrics || {}
+      if (impact.waterSaved) return s + Number(impact.waterSaved)
+      const kg = Number(impact.foodKg || d.weight || parseKgFromQuantity(d.quantity || d.raw?.quantity)) || 0
+      return s + kg * WATER_L_PER_KG
+    }, 0)
+
     foodSavedTrend.push({
       date: dateStr,
-      amount: dayCollections.length * 2.5, // Assume 2.5kg per collection
+      amount: amountKg,
     })
 
     userEngagementTrend.push({
       date: dateStr,
-      users: new Set([...(dayListings as any[]).map((l) => l.donorId), ...(dayCollections as any[]).map((c) => c.collectorId)]).size,
+      users: new Set([...(dayListings as any[]).map((l) => l.donorId), ...(dayDonations as any[]).map((c) => c.recipientId || c.collectedBy)]).size,
       listings: dayListings.length,
     })
 
     impactTrend.push({
       date: dateStr,
-      carbon: dayCollections.length * 2.1, // 2.1kg CO2 per collection
-      water: dayCollections.length * 15, // 15L water per collection
+      carbon: Math.round(carbonDay),
+      water: Math.round(waterDay),
     })
   }
 

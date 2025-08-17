@@ -62,51 +62,14 @@ interface CollectionRecord {
 }
 
 // real data will be loaded from the server
-const mockCollectionHistory: CollectionRecord[] = [
-  {
-    id: "1",
-    listingId: "1",
-    listingTitle: "Vegetable Curry",
-    donatedBy: "Jane Smith",
-    organization: "Main Campus Canteen",
-    collectedBy: "Rahul Kumar",
-    collectedAt: "2024-01-15T15:45:00Z",
-    quantity: "5.2 kg",
-    foodType: "meals",
-    location: "Main Canteen",
-    collectionMethod: "qr_scan",
-  },
-  {
-    id: "2",
-    listingId: "2",
-    listingTitle: "Fresh Sandwiches",
-    donatedBy: "Mike Johnson",
-    organization: "Student Hostel A",
-    collectedBy: "Priya Sharma",
-    collectedAt: "2024-01-14T17:20:00Z",
-    quantity: "3.8 kg",
-    foodType: "snacks",
-    location: "Student Hostel",
-    collectionMethod: "qr_scan",
-  },
-]
-
-// Mock monthly donation data for charts
-const monthlyDonationData = [
-  { month: "Aug", donations: 12, weight: 28.5, collections: 10 },
-  { month: "Sep", donations: 18, weight: 42.1, collections: 16 },
-  { month: "Oct", donations: 15, weight: 35.8, collections: 13 },
-  { month: "Nov", donations: 22, weight: 51.2, collections: 20 },
-  { month: "Dec", donations: 19, weight: 44.6, collections: 17 },
-  { month: "Jan", donations: 25, weight: 58.3, collections: 22 },
-]
+// collections and charts are populated from server data
 
 export default function DonationHistoryPage() {
   const [user, setUser] = useState<any>(null)
-  const [donations, setDonations] = useState<DonationRecord[]>([])
-  const [collections, setCollections] = useState<CollectionRecord[]>(mockCollectionHistory)
+   const [donations, setDonations] = useState<DonationRecord[]>([])
+   const [collections, setCollections] = useState<CollectionRecord[]>([])
   const [filteredDonations, setFilteredDonations] = useState<DonationRecord[]>([])
-  const [filteredCollections, setFilteredCollections] = useState<CollectionRecord[]>(mockCollectionHistory)
+  const [filteredCollections, setFilteredCollections] = useState<CollectionRecord[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
   const [recipientFilter, setRecipientFilter] = useState("all")
@@ -185,26 +148,93 @@ export default function DonationHistoryPage() {
         const currentUserRaw = localStorage.getItem('user')
         const currentUser = currentUserRaw ? JSON.parse(currentUserRaw) : user
 
-        // If we have a current user, show only donations where they are the donor
+        // If we have a current user, show donations where they are the donor OR where
+        // the donation belongs to a listing they created (so donors see impact when others collect)
         let myDonations = allDonations
         if (currentUser) {
           const userId = currentUser.id || currentUser._id
           const userEmail = currentUser.email
           const userName = currentUser.name
+
+          // Fetch listings to identify listings created by this user
+          let myListingIds = new Set<string>()
+          try {
+            const listingsRes = await fetch('/api/food-listings')
+            if (listingsRes.ok) {
+              const ld = await listingsRes.json()
+              const listings = ld.listings || []
+              for (const l of listings) {
+                const isMine = (l.createdBy && (String(l.createdBy) === String(userId))) ||
+                  (l.createdByEmail && userEmail && String(l.createdByEmail) === String(userEmail)) ||
+                  (l.providerId && String(l.providerId) === String(userId)) ||
+                  (l.providerName && userName && String(l.providerName) === String(userName))
+                if (isMine) {
+                  if (l.id) myListingIds.add(String(l.id))
+                  if (l._id) myListingIds.add(String(l._id))
+                  if (l.raw && l.raw.id) myListingIds.add(String(l.raw.id))
+                }
+              }
+            }
+          } catch (e) {
+            console.warn('Failed to fetch listings when filtering donations', e)
+          }
+
           myDonations = allDonations.filter((d: any) => {
             if (!d) return false
             if (d.donorId && userId && String(d.donorId) === String(userId)) return true
             if (d.donorEmail && userEmail && String(d.donorEmail) === String(userEmail)) return true
             if (d.donorName && userName && String(d.donorName) === String(userName)) return true
+
+            // If donation references a listing that belongs to me, include it
+            const listingId = d.listingId || d.raw?.listingId || d.foodItem || null
+            if (listingId && myListingIds.has(String(listingId))) return true
+
             return false
           })
         }
 
-        // dedupe donations by id
+        // Try to fetch listings so we can derive a weight when donations do not include quantity
+        let listingMap: Record<string, any> = {}
+        try {
+          const listRes = await fetch('/api/food-listings')
+          if (listRes.ok) {
+            const listData = await listRes.json()
+            const listings = listData.listings || []
+            for (const l of listings) {
+              if (l.id) listingMap[String(l.id)] = l
+              if (l._id) listingMap[String(l._id)] = l
+              if (l.raw && l.raw.id) listingMap[String(l.raw.id)] = l
+            }
+          }
+        } catch (e) {
+          console.warn('Failed to fetch listings while loading donations', e)
+        }
+
+        // dedupe donations by id and enrich with listing quantity when available
         const seen = new Map<string, any>()
         for (const d of myDonations) {
           const key = d.id || (d._id && String(d._id)) || JSON.stringify(d)
-          if (!seen.has(key)) seen.set(key, d)
+          if (seen.has(key)) continue
+
+          const dd: any = d
+          const listingId = dd.listingId || dd.raw?.listingId || dd.foodItem || null
+          const listing = listingId ? listingMap[String(listingId)] : null
+          if (listing) {
+            dd.listing = listing
+            const qty = listing.quantity || listing.raw?.quantity || null
+            const ft = (listing.foodType || '').toLowerCase()
+            if (qty) {
+              if (ft === 'meals') {
+                dd.quantity = `${qty} servings`
+              } else if (ft === 'snacks' || ft === 'fruits' || ft === 'vegetables') {
+                dd.quantity = `${qty} pcs`
+              } else {
+                dd.quantity = `${qty} kg`
+              }
+            }
+          }
+
+          seen.set(key, dd)
         }
         setDonations(Array.from(seen.values()))
       }
@@ -367,17 +397,148 @@ export default function DonationHistoryPage() {
     })
   }
 
-  const totalImpact = donations.reduce(
-    (acc, donation) => {
-      const im = donation?.impactMetrics || { co2Saved: 0, waterSaved: 0, peopleFed: 0 }
-      return {
-        co2Saved: acc.co2Saved + (im.co2Saved || 0),
-        waterSaved: acc.waterSaved + (im.waterSaved || 0),
-        peopleFed: acc.peopleFed + (im.peopleFed || 0),
+  // Conversion constants (sensible defaults; adjust if you have better domain values)
+  const CO2_PER_KG = 2.5 // kg CO2 saved per kg of food
+  const WATER_L_PER_KG = 500 // liters of water saved per kg of food
+  const MEALS_PER_KG = 2 // approximate number of meals per kg of food
+
+  // Parse a quantity value into kilograms. Supports formats like:
+  // "5 kg", "500 g", "3 servings", "2 pcs", "4 pieces", or numeric values.
+  // Returns weight in kilograms.
+  const parseQuantityKg = (q: any) => {
+    if (q === null || q === undefined) return 0
+    // Constants to convert non-kg units to kg
+    const KG_PER_SERVING = 0.25 // default kg per serving
+    const KG_PER_PIECE = 0.2 // default kg per piece
+
+    if (typeof q === 'number') return q
+    if (typeof q === 'string') {
+      const s = q.trim().toLowerCase()
+
+      // common patterns: number + unit
+      const match = s.match(/([0-9]*\.?[0-9]+)\s*(kg|kilogram|kilograms)\b/)
+      if (match) return parseFloat(match[1])
+
+      const matchG = s.match(/([0-9]*\.?[0-9]+)\s*(g|gram|grams)\b/)
+      if (matchG) return parseFloat(matchG[1]) / 1000
+
+      const matchServ = s.match(/([0-9]*\.?[0-9]+)\s*(servings?|serves?|serving)\b/)
+      if (matchServ) return parseFloat(matchServ[1]) * KG_PER_SERVING
+
+      const matchPiece = s.match(/([0-9]*\.?[0-9]+)\s*(pcs|pieces?|piece|pc)\b/)
+      if (matchPiece) return parseFloat(matchPiece[1]) * KG_PER_PIECE
+
+      // sometimes values like "5kg" or "500g" without space
+      const compactKg = s.match(/^([0-9]*\.?[0-9]+)kg$/)
+      if (compactKg) return parseFloat(compactKg[1])
+      const compactG = s.match(/^([0-9]*\.?[0-9]+)g$/)
+      if (compactG) return parseFloat(compactG[1]) / 1000
+
+      // fallback: try to extract first number and assume kg
+      const num = s.match(/([0-9]*\.?[0-9]+)/)
+      if (num) return parseFloat(num[1])
+    }
+
+    return 0
+  }
+
+  const getDonationWeight = (d: any) => {
+    // Try common fields where weight might be stored
+    const candidates = [d.quantity, d.weight, d.impactMetrics?.weight, d.listing?.quantity, d.raw?.quantity]
+    for (const c of candidates) {
+      const parsed = parseQuantityKg(c)
+      if (parsed && parsed > 0) return parsed
+    }
+    return 0
+  }
+  // totalImpact: compute total weight (with fallback) and unique recipients
+  const DEFAULT_WEIGHT_PER_DONATION = 2 // kg fallback when a donation has no quantity info
+
+  // Prefer persisted per-donation impactMetrics where available (co2Saved, waterSaved, peopleFed).
+  // Fall back to derived weights when impactMetrics are missing.
+  let totalWeight = 0
+  let totalCo2 = 0
+  let totalWater = 0
+  const recipientSet = new Set<string>()
+  for (const donation of donations) {
+    const dd: any = donation
+    // If the donation has persisted impactMetrics, use them
+    if (dd.impactMetrics && (dd.impactMetrics.co2Saved || dd.impactMetrics.waterSaved || dd.impactMetrics.foodKg)) {
+      totalCo2 += Number(dd.impactMetrics.co2Saved || 0)
+      totalWater += Number(dd.impactMetrics.waterSaved || 0)
+      totalWeight += Number(dd.impactMetrics.foodKg || 0)
+      if (dd.impactMetrics.peopleFed) {
+        // If the donation explicitly recorded peopleFed, add it; else we still count unique recipients below
+        // but keep peopleFed per-donation additive as a hint (we'll prefer unique-recipient count for UI)
       }
-    },
-    { co2Saved: 0, waterSaved: 0, peopleFed: 0 },
-  )
+    } else {
+      // derive from available fields
+      let weight = getDonationWeight(dd)
+      if (!weight || weight <= 0) weight = DEFAULT_WEIGHT_PER_DONATION
+      totalWeight += weight
+      totalCo2 += weight * CO2_PER_KG
+      totalWater += weight * WATER_L_PER_KG
+    }
+
+    // Gather unique recipient identifiers (prefer id, then email, then name)
+    if (dd.recipientId) recipientSet.add(String(dd.recipientId))
+    else if (dd.recipientEmail) recipientSet.add(String(dd.recipientEmail))
+    else if (dd.donatedTo) recipientSet.add(String(dd.donatedTo))
+  }
+
+  const totalImpact = {
+    co2Saved: totalCo2,
+    waterSaved: Math.round(totalWater),
+    peopleFed: recipientSet.size,
+  }
+
+  // --- Chart helpers ---
+  const getPastMonths = (count = 6) => {
+    const months: { key: string; label: string; date: Date }[] = []
+    const now = new Date()
+    for (let i = count - 1; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+      const label = d.toLocaleString('en-US', { month: 'short' })
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      months.push({ key, label, date: d })
+    }
+    return months
+  }
+
+  const monthlyDonationData = (() => {
+    const months = getPastMonths(6)
+    const data = months.map((m) => ({ month: m.label, donations: 0, collections: 0, weight: 0 }))
+
+    // count donations per month and sum weight
+    for (const d of donations) {
+      const dd: any = d
+      const ts = dd.receivedTime || dd.collectedAt || dd.createdAt || null
+      const date = ts ? new Date(ts) : null
+      if (!date) continue
+      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+      const idx = months.findIndex((mm) => mm.key === key)
+      if (idx >= 0) {
+        data[idx].donations = (data[idx].donations || 0) + 1
+        data[idx].weight = (data[idx].weight || 0) + getDonationWeight(dd)
+      }
+    }
+
+    // count collections per month and sum collected quantity
+    for (const c of collections) {
+      const cc: any = c
+      const ts = cc.collectedAt || cc.reservedAt || cc.updatedAt || null
+      const date = ts ? new Date(ts) : null
+      if (!date) continue
+      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+      const idx = months.findIndex((mm) => mm.key === key)
+      if (idx >= 0) {
+        data[idx].collections = (data[idx].collections || 0) + 1
+        data[idx].weight = (data[idx].weight || 0) + parseQuantityKg(c.quantity)
+      }
+    }
+
+    return data
+  })()
 
   const collectionStats = {
     totalCollections: collections.length,

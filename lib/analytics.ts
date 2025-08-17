@@ -13,11 +13,13 @@ export async function updateAnalyticsForDonation(db: Db, donation: any) {
     const dateStr = now.toISOString().split('T')[0]
 
     // Use provided impact metrics if available, otherwise fall back to sensible defaults
-    const impact = (donation && donation.impactMetrics) || {}
-    const peopleServed = Number(impact.peopleServed || 0)
-    const carbon = Number(impact.carbonSaved || 2.1) // default per-collection estimate
-    const water = Number(impact.waterSaved || 15) // default per-collection estimate
-    const foodKg = Number(impact.foodKg || 2.5) // default kg per donation
+  // Use explicit impact metrics from the donation when present. Avoid non-zero fallbacks
+  // which caused analytics to increment even when a donation had no computed metrics.
+  const impact = (donation && donation.impactMetrics) || {}
+  const peopleServed = Number(impact.peopleServed || 0)
+  const carbon = Number(impact.carbonSaved || 0)
+  const water = Number(impact.waterSaved || 0)
+  const foodKg = Number(impact.foodKg || 0)
 
     const analyticsCol = db.collection('analytics')
 
