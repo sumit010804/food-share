@@ -58,6 +58,7 @@ interface CollectionRecord {
   foodType: string
   location: string
   collectionMethod: "qr_scan" | "manual" | "direct"
+  status?: string
 }
 
 // real data will be loaded from the server
@@ -140,7 +141,61 @@ export default function DonationHistoryPage() {
       const response = await fetch("/api/food-listings/collect")
       if (response.ok) {
         const data = await response.json()
-        setCollections(data.collections || [])
+        // Show only collections reserved/assigned to the current user (by id or email)
+        const allCollections = data.collections || []
+        const userId = user?.id
+        const userEmail = user?.email
+        const myCollections = allCollections.filter((c: any) => {
+          if (!userId && !userEmail) return false
+          if (c.recipientId && userId && String(c.recipientId) === String(userId)) return true
+          if (c.recipientEmail && userEmail && String(c.recipientEmail) === String(userEmail)) return true
+          return false
+        })
+        let merged = myCollections
+
+        // Also include any reserved listings where the listing.reservedByEmail matches the user's email
+        try {
+          const listingsRes = await fetch('/api/food-listings')
+          if (listingsRes.ok) {
+            const listingsData = await listingsRes.json()
+            const listings = listingsData.listings || []
+            const reservedForMe = listings.filter((l: any) => {
+              const reservedBy = l.reservedBy || l.raw?.reservedBy || null
+              const reservedByEmail = l.reservedByEmail || l.raw?.reservedByEmail || null
+              if (!userEmail && !userId) return false
+              if (reservedBy && userId && String(reservedBy) === String(userId)) return true
+              if (reservedByEmail && userEmail && String(reservedByEmail) === String(userEmail)) return true
+              return false
+            }).map((l: any) => ({
+              id: `synth-${l.id || l._id}`,
+              listingId: l.id || (l._id && String(l._id)),
+              listingTitle: l.title,
+              donatedBy: l.donorName || l.providerName || null,
+              organization: l.organization || null,
+              recipientId: l.reservedBy || null,
+              recipientEmail: l.reservedByEmail || null,
+              recipientName: l.reservedByName || null,
+              reservedAt: l.reservedAt || l.updatedAt || null,
+              status: 'reserved',
+              quantity: l.quantity || null,
+              location: l.location || null,
+              foodType: l.foodType || null,
+              collectionMethod: l.collectionMethod || 'manual',
+            }))
+
+            // merge and dedupe by listingId
+            const byListing: Record<string, any> = {}
+            merged.concat(reservedForMe).forEach((c: any) => {
+              const lid = c.listingId || c.id
+              byListing[lid] = byListing[lid] || c
+            })
+            merged = Object.values(byListing)
+          }
+        } catch (e) {
+          console.warn('Failed to fetch listings for reserved merge', e)
+        }
+
+        setCollections(merged)
       }
     } catch (error) {
       console.error("Failed to load collection data:", error)
@@ -694,6 +749,33 @@ export default function DonationHistoryPage() {
                             <Eye className="h-4 w-4 mr-2" />
                             Details
                           </Button>
+                          {collection.status === 'reserved' && (
+                            <Button
+                              size="sm"
+                              className="bg-cyan-600 text-white hover-lift h-10"
+                              onClick={async () => {
+                                try {
+                                  const res = await fetch('/api/food-listings/collect', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ listingId: collection.listingId, collectedBy: user?.name, collectedAt: new Date().toISOString(), collectionMethod: 'manual' })
+                                  })
+                                  if (res.ok) {
+                                    // refresh collections/donations
+                                    loadCollectionData()
+                                    loadDonationData()
+                                  } else {
+                                    console.warn('Collect failed', await res.text())
+                                  }
+                                } catch (e) {
+                                  console.error('Collect error', e)
+                                }
+                              }}
+                            >
+                              <CheckCircle className="h-4 w-4 mr-2" />
+                              Collect
+                            </Button>
+                          )}
                         </div>
                       </div>
                     </div>

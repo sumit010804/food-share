@@ -79,6 +79,65 @@ export default function FoodListingsPage() {
     }
   }
 
+  const handleReserve = async (listing: FoodListing) => {
+    try {
+      // prevent self-reserve on client as well (use lister email)
+      const currentUserEmail = user?.email || ''
+      const listerEmail = (listing as any).createdByEmail || (listing as any).provider?.email || (listing as any).email || ''
+      if (listerEmail && String(listerEmail) === String(currentUserEmail)) {
+        alert("You cannot reserve your own listing.")
+        return
+      }
+
+      // optimistically update UI
+      setListings((prev) => prev.map(l => l.id === listing.id ? { ...l, status: 'reserved' } : l))
+
+      const res = await fetch('/api/food-listings/reserve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ listingId: listing.id, userId: user?.id, userName: user?.name, userEmail: user?.email })
+      })
+
+      if (!res.ok) {
+        // Attempt to parse JSON body, but handle non-JSON responses gracefully
+        let parsed: any = null
+        try {
+          parsed = await res.json()
+        } catch (parseErr) {
+          parsed = null
+        }
+
+        if (parsed && parsed.message) {
+          // Expected 4xx responses (listing already reserved, etc.) are not runtime errors
+          // so log at warn level to avoid Next dev overlay while still surfacing info.
+          console.warn('Reserve failed', parsed.message, 'status', res.status)
+          // Don't block the user with an alert on expected reservation conflicts.
+          // Re-fetch listings so the UI reflects the canonical state.
+        } else {
+          // fallback to raw text if JSON wasn't available
+          let textBody: string | null = null
+          try {
+            textBody = await res.text()
+          } catch (tErr) {
+            textBody = null
+          }
+          console.warn('Reserve failed', { status: res.status, statusText: res.statusText, body: textBody })
+          alert(`Reserve failed: ${res.status} ${res.statusText}${textBody ? ` - ${textBody}` : ''}`)
+        }
+
+        // rollback optimistic update
+        fetchListings()
+        return
+      }
+
+      // successful reserve -> re-fetch listings to get canonical data
+      fetchListings()
+    } catch (e) {
+      console.error('Reserve error', e)
+      fetchListings()
+    }
+  }
+
   useEffect(() => {
     let filtered = listings
 
@@ -392,10 +451,11 @@ export default function FoodListingsPage() {
                 </div>
 
                 <div className="flex flex-col sm:flex-row gap-2 mt-6">
-                  {listing.status === "available" && (
+                  {listing.status === "available" && String((listing as any).createdByEmail || '') !== String(user?.email || '') && (
                     <Button
                       size="sm"
                       className="flex-1 gradient-primary text-white hover-lift shadow-lg hover:shadow-emerald-200 h-10 font-medium"
+                      onClick={() => handleReserve(listing)}
                     >
                       Reserve
                     </Button>
