@@ -39,7 +39,11 @@ export async function POST(request: NextRequest) {
     if (!passwordMatch) {
       return NextResponse.json({ message: "Invalid email or password" }, { status: 401 });
     }
-    const { password: _, ...userWithoutPassword } = user;
+  const { password: _, ...userWithoutPassword } = user;
+  // Normalize user shape for client: ensure `id` is present (string) and remove `_id`
+  const normalizedUser: any = { ...userWithoutPassword }
+  if (user._id) normalizedUser.id = String(user._id)
+  if (normalizedUser._id) delete normalizedUser._id
     // Deliver any pending notifications scheduled for this user (if still valid)
     try {
       const pending = await db
@@ -79,7 +83,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       message: "Login successful",
-      user: userWithoutPassword,
+      user: normalizedUser,
     });
   } catch (error) {
     console.error("Unexpected error in login route:", error)

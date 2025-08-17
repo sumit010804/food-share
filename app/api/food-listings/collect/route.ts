@@ -1,23 +1,21 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { storage } from "@/lib/local-storage"
 import { getDatabase } from "@/lib/mongodb"
 import type { CollectionRecord, DonationRecord } from "@/lib/types"
+import { updateAnalyticsForDonation } from '@/lib/analytics'
 import { ObjectId } from 'mongodb'
 
 export async function POST(request: NextRequest) {
   try {
     const { listingId, collectedBy, collectedAt, collectionMethod = "qr_scan" } = await request.json()
 
-    // Try DB-backed flow first
-    try {
-      const db = await getDatabase()
-      const collectionsCol = db.collection('collections')
-      const foodListingsCol = db.collection('foodListings')
-      const donationsCol = db.collection('donations')
-      const notificationsCol = db.collection('notifications')
+  const db = await getDatabase()
+  const collectionsCol = db.collection('collections')
+  const foodListingsCol = db.collection('foodListings')
+  const donationsCol = db.collection('donations')
+  const notificationsCol = db.collection('notifications')
 
-      // find collection either by listingId field or by id
-      let existing = await collectionsCol.findOne({ $or: [{ listingId }, { id: listingId }] })
+  // find collection either by listingId field or by id
+  let existing = await collectionsCol.findOne({ $or: [{ listingId }, { id: listingId }] })
 
       // If no collection doc exists yet, try to find the reserved food listing and create a collection from it
       if (!existing) {
@@ -89,7 +87,15 @@ export async function POST(request: NextRequest) {
         createdAt: new Date().toISOString(),
         status: 'collected',
       }
-      await donationsCol.insertOne(donationDoc)
+      const ins = await donationsCol.insertOne(donationDoc)
+
+      // Update analytics incrementally for this donation
+      try {
+        const savedDonation = { ...donationDoc, _id: ins.insertedId }
+        await updateAnalyticsForDonation(db, savedDonation)
+      } catch (e) {
+        console.error('Failed to update analytics after donation insert', e)
+      }
 
       // Create notifications
       try {
@@ -113,101 +119,25 @@ export async function POST(request: NextRequest) {
           createdAt: new Date().toISOString(),
           metadata: { listingId: existing.listingId || listingId, collectionMethod }
         }
-        if (donorNotification.userId) await notificationsCol.insertOne(donorNotification)
-        if (collectorNotification.userId) await notificationsCol.insertOne(collectorNotification)
+        if (donorNotification.userId) {
+          await notificationsCol.updateOne(
+            { id: donorNotification.id },
+            { $setOnInsert: donorNotification },
+            { upsert: true },
+          )
+        }
+        if (collectorNotification.userId) {
+          await notificationsCol.updateOne(
+            { id: collectorNotification.id },
+            { $setOnInsert: collectorNotification },
+            { upsert: true },
+          )
+        }
       } catch (e) {
         console.warn('Failed to create notifications for collect', e)
       }
 
       return NextResponse.json({ message: 'Item marked as collected successfully', collection: { ...existing, status: 'collected', collectedAt, collectedBy } })
-    } catch (dbErr) {
-      console.warn('DB-backed collect failed, falling back to local storage', dbErr)
-    }
-
-    // Fallback to in-memory/local storage behavior
-    const listing = storage.getFoodListingById(listingId)
-    if (!listing) {
-      return NextResponse.json({ message: 'Food listing not found' }, { status: 404 })
-    }
-
-    // Check if already collected
-    if (listing.status === 'collected') {
-      return NextResponse.json({ message: 'Item already collected' }, { status: 400 })
-    }
-
-    const collection: CollectionRecord = {
-      id: Date.now().toString(),
-      collectorId: 'current-user', // In real app, get from auth
-      collectorName: collectedBy,
-      donorId: listing.donorId,
-      donorName: listing.donorName,
-      foodListingId: listingId,
-      foodTitle: listing.title,
-      collectedAt,
-      collectionMethod,
-      location: listing.location,
-      quantity: listing.quantity,
-    }
-
-    storage.addCollection(collection)
-
-    const donation: DonationRecord = {
-      id: `donation-${listingId}`,
-      donorId: listing.donorId,
-      donorName: listing.donorName,
-      recipientId: 'current-user',
-      recipientName: collectedBy,
-      foodTitle: listing.title,
-      foodType: listing.foodType,
-      quantity: listing.quantity,
-      donatedAt: listing.createdAt,
-      collectedAt,
-      status: 'collected',
-      impactMetrics: {
-        carbonSaved: 2.5,
-        waterSaved: 150,
-        peopleServed: 1,
-      },
-    }
-
-    storage.addDonation(donation)
-
-    storage.updateFoodListing(listingId, {
-      status: 'collected',
-      collectedBy,
-      collectedAt,
-    })
-
-    const donorNotification = {
-      id: `collection-${listingId}-donor`,
-      type: 'item_collected' as const,
-      title: `Item Collected: ${listing.title}`,
-      message: `Your food item "${listing.title}" has been collected by ${collectedBy}${
-        collectionMethod === 'qr_scan' ? ' via QR scan' : collectionMethod === 'manual' ? ' manually' : ' directly'
-      }.`,
-      read: false,
-      createdAt: new Date().toISOString(),
-      priority: 'medium' as const,
-      actionUrl: '/dashboard/donation-history',
-      metadata: { listingId, collectorName: collectedBy, collectionMethod },
-    }
-
-    const collectorNotification = {
-      id: `collection-${listingId}-collector`,
-      type: 'collection_confirmed' as const,
-      title: `Collection Confirmed: ${listing.title}`,
-      message: `You have successfully collected "${listing.title}" from ${listing.donorName}.`,
-      read: false,
-      createdAt: new Date().toISOString(),
-      priority: 'low' as const,
-      actionUrl: '/dashboard/donation-history',
-      metadata: { listingId, donorName: listing.donorName, collectionMethod },
-    }
-
-    storage.addNotification({ ...donorNotification, userId: listing.donorId })
-    storage.addNotification({ ...collectorNotification, userId: 'current-user' })
-
-    return NextResponse.json({ message: 'Item marked as collected successfully', collection })
   } catch (error) {
     console.error('Collection error:', error)
     return NextResponse.json({ message: 'Internal server error' }, { status: 500 })
@@ -216,16 +146,31 @@ export async function POST(request: NextRequest) {
 
 export async function GET() {
   try {
-    // Prefer DB collections when available
-    try {
-      const db = await getDatabase()
-      const collections = await db.collection('collections').find({}).toArray()
-      return NextResponse.json({ message: "Collections retrieved successfully", collections })
-    } catch (e) {
-      // fallback to in-memory/local storage for dev
-      const collections = storage.getCollections()
-      return NextResponse.json({ message: "Collections retrieved successfully", collections })
-    }
+  const db = await getDatabase()
+  const collections = await db.collection('collections').find({}).toArray()
+  // Normalize collections for client
+  const normalized = collections.map((c: any) => ({
+    id: c.id || (c._id && String(c._id)),
+    listingId: c.listingId ? String(c.listingId) : null,
+    listingTitle: c.listingTitle || c.foodTitle || null,
+    donatedBy: c.donatedBy || c.donorName || null,
+    organization: c.organization || null,
+    recipientId: c.recipientId ? String(c.recipientId) : null,
+    recipientEmail: c.recipientEmail || null,
+    recipientName: c.recipientName || null,
+    reservedAt: c.reservedAt ? new Date(c.reservedAt).toISOString() : null,
+    collectedAt: c.collectedAt ? new Date(c.collectedAt).toISOString() : null,
+    status: c.status || null,
+    quantity: c.quantity || null,
+    location: c.location || null,
+    foodType: c.foodType || null,
+    collectionMethod: c.collectionMethod || null,
+    createdAt: c.createdAt ? new Date(c.createdAt).toISOString() : null,
+    updatedAt: c.updatedAt ? new Date(c.updatedAt).toISOString() : null,
+    raw: c,
+  }))
+
+  return NextResponse.json({ message: "Collections retrieved successfully", collections: normalized })
   } catch (error) {
     return NextResponse.json({ message: "Internal server error" }, { status: 500 })
   }

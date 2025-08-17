@@ -131,7 +131,22 @@ export default function FoodListingsPage() {
       }
 
       // successful reserve -> re-fetch listings to get canonical data
+      const json = await res.json().catch(() => null)
       fetchListings()
+
+      // Notify other tabs/pages to reload collections. If server returned the created collection,
+      // include it in the event detail so listeners can update state immediately without
+      // relying on localStorage.
+      try {
+        if (json && json.collection) {
+          window.dispatchEvent(new CustomEvent('collections:updated', { detail: json.collection }))
+        } else {
+          window.dispatchEvent(new Event('collections:updated'))
+        }
+      } catch (e) {
+        console.warn('Failed to dispatch collections:updated event with detail', e)
+        window.dispatchEvent(new Event('collections:updated'))
+      }
     } catch (e) {
       console.error('Reserve error', e)
       fetchListings()

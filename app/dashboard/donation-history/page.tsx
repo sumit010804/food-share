@@ -113,15 +113,66 @@ export default function DonationHistoryPage() {
   const [activeTab, setActiveTab] = useState("donations")
   const router = useRouter()
 
+  // Helper: dedupe collections by id or listingId, prefer the most recently updated entry
+  const dedupeCollections = (items: any[]) => {
+    const map = new Map<string, any>()
+    for (const c of items) {
+  // Use listingId as canonical key when available so entries that have different id shapes
+  // (synthesized vs DB doc) still dedupe correctly.
+  const key = (c.listingId && String(c.listingId)) || (c.id && String(c.id)) || `${c.listingTitle}-${c.collectedAt || c.reservedAt || ''}`
+      const existing = map.get(key)
+      if (!existing) {
+        map.set(key, c)
+        continue
+      }
+      const existingTs = new Date(existing.updatedAt || existing.collectedAt || existing.reservedAt || 0).getTime()
+      const cTs = new Date(c.updatedAt || c.collectedAt || c.reservedAt || 0).getTime()
+      if (cTs >= existingTs) map.set(key, c)
+    }
+    return Array.from(map.values())
+  }
+
   useEffect(() => {
     const userData = localStorage.getItem("user")
     if (userData) {
-      setUser(JSON.parse(userData))
-      loadCollectionData()
+      const parsed = JSON.parse(userData)
+      setUser(parsed)
+      // pass the freshly parsed user into loader so it doesn't depend on state update timing
+      loadCollectionData(parsed)
       loadDonationData()
     } else {
       router.push("/login")
     }
+
+    
+
+    // Listen for cross-tab collection updates; event may contain the newly created collection
+    const onCollectionsUpdated = (e: any) => {
+      const currentUserRaw = localStorage.getItem('user')
+      const currentUser = currentUserRaw ? JSON.parse(currentUserRaw) : null
+
+      // If the event includes a collection in detail, merge it into state immediately for a
+      // snappy UI, but only if it belongs to the current user. Otherwise, re-fetch collections.
+      const col = e?.detail || null
+      if (col) {
+        const belongsToMe = (() => {
+          if (!currentUser) return false
+          if (col.recipientId && currentUser.id && String(col.recipientId) === String(currentUser.id)) return true
+          if (col.recipientEmail && currentUser.email && String(col.recipientEmail) === String(currentUser.email)) return true
+          return false
+        })()
+
+        if (belongsToMe) {
+          setCollections((prev: any[]) => dedupeCollections(prev.concat([col])))
+          return
+        }
+      }
+
+      // no detail or doesn't belong to current user -> re-fetch
+      loadCollectionData()
+    }
+    window.addEventListener('collections:updated', onCollectionsUpdated as EventListener)
+    return () => window.removeEventListener('collections:updated', onCollectionsUpdated as EventListener)
   }, [router])
 
   const loadDonationData = async () => {
@@ -129,22 +180,49 @@ export default function DonationHistoryPage() {
       const res = await fetch("/api/donations")
       if (res.ok) {
         const data = await res.json()
-        setDonations(data.donations || [])
+        const allDonations = data.donations || []
+        // determine current user (state may not yet be set when called)
+        const currentUserRaw = localStorage.getItem('user')
+        const currentUser = currentUserRaw ? JSON.parse(currentUserRaw) : user
+
+        // If we have a current user, show only donations where they are the donor
+        let myDonations = allDonations
+        if (currentUser) {
+          const userId = currentUser.id || currentUser._id
+          const userEmail = currentUser.email
+          const userName = currentUser.name
+          myDonations = allDonations.filter((d: any) => {
+            if (!d) return false
+            if (d.donorId && userId && String(d.donorId) === String(userId)) return true
+            if (d.donorEmail && userEmail && String(d.donorEmail) === String(userEmail)) return true
+            if (d.donorName && userName && String(d.donorName) === String(userName)) return true
+            return false
+          })
+        }
+
+        // dedupe donations by id
+        const seen = new Map<string, any>()
+        for (const d of myDonations) {
+          const key = d.id || (d._id && String(d._id)) || JSON.stringify(d)
+          if (!seen.has(key)) seen.set(key, d)
+        }
+        setDonations(Array.from(seen.values()))
       }
     } catch (err) {
       console.error("Failed to load donations:", err)
     }
   }
 
-  const loadCollectionData = async () => {
+  const loadCollectionData = async (overrideUser?: any) => {
     try {
       const response = await fetch("/api/food-listings/collect")
       if (response.ok) {
         const data = await response.json()
         // Show only collections reserved/assigned to the current user (by id or email)
         const allCollections = data.collections || []
-        const userId = user?.id
-        const userEmail = user?.email
+        const activeUser = overrideUser || user
+        const userId = activeUser?.id
+        const userEmail = activeUser?.email
         const myCollections = allCollections.filter((c: any) => {
           if (!userId && !userEmail) return false
           if (c.recipientId && userId && String(c.recipientId) === String(userId)) return true
@@ -184,12 +262,8 @@ export default function DonationHistoryPage() {
             }))
 
             // merge and dedupe by listingId
-            const byListing: Record<string, any> = {}
-            merged.concat(reservedForMe).forEach((c: any) => {
-              const lid = c.listingId || c.id
-              byListing[lid] = byListing[lid] || c
-            })
-            merged = Object.values(byListing)
+            merged = dedupeCollections(merged.concat(reservedForMe))
+            // no-op: we rely on DB-backed collections and event.detail for immediate UI updates
           }
         } catch (e) {
           console.warn('Failed to fetch listings for reserved merge', e)
@@ -294,11 +368,14 @@ export default function DonationHistoryPage() {
   }
 
   const totalImpact = donations.reduce(
-    (acc, donation) => ({
-      co2Saved: acc.co2Saved + donation.impactMetrics.co2Saved,
-      waterSaved: acc.waterSaved + donation.impactMetrics.waterSaved,
-      peopleFed: acc.peopleFed + donation.impactMetrics.peopleFed,
-    }),
+    (acc, donation) => {
+      const im = donation?.impactMetrics || { co2Saved: 0, waterSaved: 0, peopleFed: 0 }
+      return {
+        co2Saved: acc.co2Saved + (im.co2Saved || 0),
+        waterSaved: acc.waterSaved + (im.waterSaved || 0),
+        peopleFed: acc.peopleFed + (im.peopleFed || 0),
+      }
+    },
     { co2Saved: 0, waterSaved: 0, peopleFed: 0 },
   )
 
@@ -608,7 +685,7 @@ export default function DonationHistoryPage() {
                                   <strong>Collected by:</strong> {donation.collectedBy}
                                 </div>
                                 <div>
-                                  <strong>Collection time:</strong> {formatDate(donation.collectedAt!)}
+                                  <strong>Collection time:</strong> {donation.collectedAt ? formatDate(donation.collectedAt) : '—'}
                                 </div>
                                 {donation.collectionMethod && (
                                   <div className="flex items-center gap-2">
@@ -629,19 +706,19 @@ export default function DonationHistoryPage() {
                             </div>
                             <div className="text-center p-3 bg-white rounded-lg border border-green-100">
                               <div className="text-lg font-bold text-green-600">
-                                {donation.impactMetrics.co2Saved} kg
+                                {(donation.impactMetrics?.co2Saved ?? 0)} kg
                               </div>
                               <div className="text-xs text-slate-500">CO₂ Saved</div>
                             </div>
                             <div className="text-center p-3 bg-white rounded-lg border border-blue-100">
                               <div className="text-lg font-bold text-blue-600">
-                                {donation.impactMetrics.waterSaved} L
+                                {(donation.impactMetrics?.waterSaved ?? 0)} L
                               </div>
                               <div className="text-xs text-slate-500">Water Saved</div>
                             </div>
                             <div className="text-center p-3 bg-white rounded-lg border border-purple-100">
                               <div className="text-lg font-bold text-purple-600">
-                                {donation.impactMetrics.peopleFed}
+                                {(donation.impactMetrics?.peopleFed ?? 0)}
                               </div>
                               <div className="text-xs text-slate-500">People Fed</div>
                             </div>
@@ -695,8 +772,8 @@ export default function DonationHistoryPage() {
                           <div className="flex items-center gap-3 mb-3">
                             <CheckCircle className="h-5 w-5 text-cyan-600" />
                             <h3 className="text-lg font-semibold text-slate-800">{collection.listingTitle}</h3>
-                            <Badge className={`${getCollectionMethodColor(collection.collectionMethod)} font-medium`}>
-                              {collection.collectionMethod.replace("_", " ").toUpperCase()}
+                            <Badge className={`${getCollectionMethodColor(collection.collectionMethod || '')} font-medium`}> 
+                              {(collection.collectionMethod || 'manual').replace("_", " ").toUpperCase()}
                             </Badge>
                           </div>
 
@@ -719,7 +796,7 @@ export default function DonationHistoryPage() {
                             </div>
                             <div className="flex items-center gap-2">
                               <Clock className="h-4 w-4 text-slate-400" />
-                              <span>{formatDate(collection.collectedAt)}</span>
+                              <span>{collection.collectedAt ? formatDate(collection.collectedAt) : '—'}</span>
                             </div>
                           </div>
 

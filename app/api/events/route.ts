@@ -1,33 +1,35 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { storage } from "@/lib/local-storage"
+import { getDatabase } from "@/lib/mongodb"
 import type { Event } from "@/lib/types"
 
 export async function GET() {
   try {
-    const events = storage.getEvents()
+    const db = await getDatabase()
+    const events = await db.collection("events").find().toArray()
 
     const now = new Date()
-    events.forEach((event) => {
-      const eventDate = new Date(event.date)
-      const eventEndDate = new Date(eventDate.getTime() + 4 * 60 * 60 * 1000) // Assume 4 hours duration
+    // Update statuses and persist changes
+    await Promise.all(
+      events.map(async (event: any) => {
+        const eventDate = new Date(event.date)
+        const eventEndDate = new Date(eventDate.getTime() + 4 * 60 * 60 * 1000) // Assume 4 hours duration
 
-      let status: "upcoming" | "ongoing" | "completed" = "upcoming"
-      if (now < eventDate) {
-        status = "upcoming"
-      } else if (now >= eventDate && now <= eventEndDate) {
-        status = "ongoing"
-      } else if (now > eventEndDate) {
-        status = "completed"
-      }
+        let status: "upcoming" | "ongoing" | "completed" = "upcoming"
+        if (now < eventDate) {
+          status = "upcoming"
+        } else if (now >= eventDate && now <= eventEndDate) {
+          status = "ongoing"
+        } else if (now > eventEndDate) {
+          status = "completed"
+        }
 
-      // Update event status in storage if changed
-      if (event.id) {
-        storage.updateEvent(event.id, { ...event, status } as any)
-      }
-    })
+        if (event._id && event.status !== status) {
+          await db.collection("events").updateOne({ _id: event._id }, { $set: { status } })
+        }
+      })
+    )
 
-    // Get updated events after status changes
-    const updatedEvents = storage.getEvents()
+    const updatedEvents = await db.collection("events").find().toArray()
 
     return NextResponse.json({
       message: "Events retrieved successfully",
@@ -72,43 +74,46 @@ export async function POST(request: NextRequest) {
         confidence = "low"
     }
 
-    const newEvent: Event = {
-      id: Date.now().toString(),
+    const db = await getDatabase()
+
+    const newEvent: Partial<Event> = {
       title: data.title,
       description: data.description || "",
       date: data.startTime || data.date,
       location: data.location,
       organizer: data.organizer,
-      organizerId: data.organizerId || "1", // Default organizer ID
+      organizerId: data.organizerId || "1",
       expectedAttendees: data.expectedAttendees,
       foodLogged: false,
       createdAt: new Date().toISOString(),
     }
 
-    storage.addEvent(newEvent)
+    const insertResult = await db.collection("events").insertOne(newEvent)
+    const createdEvent = await db.collection("events").findOne({ _id: insertResult.insertedId })
 
-    const eventDate = new Date(newEvent.date).toLocaleDateString()
-    const eventTime = new Date(newEvent.date).toLocaleTimeString()
+    const eventDate = new Date(createdEvent!.date).toLocaleDateString()
+    const eventTime = new Date(createdEvent!.date).toLocaleTimeString()
 
     const notification = {
-      id: `new-event-${newEvent.id}`,
+      id: `new-event-${String(createdEvent!._id)}`,
       type: "event_added" as const,
-      title: `New Event Added: ${newEvent.title}`,
-      message: `${newEvent.organizer} has scheduled "${newEvent.title}" on ${eventDate} at ${eventTime}. Location: ${newEvent.location}. Expected surplus food: ${expectedSurplus} servings.`,
+      title: `New Event Added: ${createdEvent!.title}`,
+      message: `${createdEvent!.organizer} has scheduled "${createdEvent!.title}" on ${eventDate} at ${eventTime}. Location: ${createdEvent!.location}. Expected surplus food: ${expectedSurplus} servings.`,
       read: false,
       createdAt: new Date().toISOString(),
       priority: "medium" as const,
       actionUrl: "/dashboard/events",
       metadata: {
-        eventId: newEvent.id,
+        eventId: String(createdEvent!._id),
       },
     }
 
-    storage.broadcastNotification(notification)
+    // Persist notification to DB so other services/clients can read it
+    await db.collection("notifications").insertOne(notification)
 
     return NextResponse.json({
       message: "Event created successfully",
-      event: newEvent,
+      event: createdEvent,
     })
   } catch (error) {
     return NextResponse.json({ message: "Internal server error" }, { status: 500 })

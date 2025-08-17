@@ -100,12 +100,24 @@ export function NotificationBell() {
       }))
 
       if (!mounted) return
-      if (newNotifications.length > notifications.length) {
+
+      // Deduplicate incoming notifications by id (or by a type+createdAt fallback)
+      const seen = new Set<string>()
+      const uniqueNotifications: Notification[] = []
+      for (const n of newNotifications) {
+        const key = n.id || `${n.type}-${n.createdAt}`
+        if (!seen.has(key)) {
+          seen.add(key)
+          uniqueNotifications.push(n)
+        }
+      }
+
+      if (uniqueNotifications.length > notifications.length) {
         setHasNewNotification(true)
         setTimeout(() => setHasNewNotification(false), 2000)
       }
 
-      setNotifications(newNotifications)
+      setNotifications(uniqueNotifications)
     } catch (error: any) {
       if (error?.name === "AbortError") return
       console.error("notification-bell: fetchNotifications error:", error)
@@ -241,7 +253,8 @@ export function NotificationBell() {
         ) : (
           <>
             {recentNotifications.map((notification, index) => {
-              const itemKey = notification.id ?? `${notification.type}-${index}-${new Date(notification.createdAt).getTime()}`
+              const createdAtMs = new Date(notification.createdAt).getTime()
+              const itemKey = notification.id || `${notification.type}-${createdAtMs}-${index}`
               return (
               <DropdownMenuItem
                 key={itemKey}

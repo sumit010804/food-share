@@ -1,40 +1,73 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { storage } from "@/lib/local-storage"
+import { getDatabase } from "@/lib/mongodb"
 
-function generateAnalyticsFromStorage(timeRange: string) {
-  const foodListings = storage.getFoodListings()
-  const donations = storage.getDonations()
-  const collections = storage.getCollections()
-  const events = storage.getEvents()
+async function generateAnalyticsFromDB(timeRange: string) {
+  const db = await getDatabase()
+
+  const [foodListings, donations, collections, events] = await Promise.all([
+    db.collection("foodListings").find().toArray(),
+    db.collection("donations").find().toArray(),
+    db.collection("collections").find().toArray(),
+    db.collection("events").find().toArray(),
+  ])
 
   const now = new Date()
   const days = timeRange === "7d" ? 7 : timeRange === "30d" ? 30 : timeRange === "90d" ? 90 : 365
   const startDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000)
 
+  // Helper to normalize date-like fields
+  const toDate = (val: any) => {
+    if (!val) return null
+    if (val instanceof Date) return val
+    try {
+      return new Date(val)
+    } catch {
+      return null
+    }
+  }
+
   // Filter data by time range
-  const recentListings = foodListings.filter((listing) => new Date(listing.createdAt) >= startDate)
-  const recentDonations = donations.filter((donation) => new Date(donation.donatedAt) >= startDate)
-  const recentCollections = collections.filter((collection) => new Date(collection.collectedAt) >= startDate)
+  const recentListings = foodListings.filter((listing: any) => {
+    const d = toDate(listing.createdAt)
+    return d && d >= startDate
+  })
+
+  const recentDonations = donations.filter((donation: any) => {
+    const d = toDate(donation.donatedAt)
+    return d && d >= startDate
+  })
+
+  const recentCollections = collections.filter((collection: any) => {
+    const d = toDate(collection.collectedAt || collection.reservedAt)
+    return d && d >= startDate
+  })
 
   // Calculate totals from real data
   const totalFoodSaved = recentDonations.length * 2.5 // Assume 2.5kg average per donation
-  const totalPeopleServed = recentDonations.reduce((sum, donation) => sum + donation.impactMetrics.peopleServed, 0)
+  const totalPeopleServed = recentDonations.reduce((sum: number, donation: any) => sum + ((donation.impactMetrics && donation.impactMetrics.peopleServed) || 0), 0)
   const totalListings = recentListings.length
-  const carbonFootprintSaved = recentDonations.reduce((sum, donation) => sum + donation.impactMetrics.carbonSaved, 0)
-  const waterFootprintSaved = recentDonations.reduce((sum, donation) => sum + donation.impactMetrics.waterSaved, 0)
+  const carbonFootprintSaved = recentDonations.reduce((sum: number, donation: any) => sum + ((donation.impactMetrics && donation.impactMetrics.carbonSaved) || 0), 0)
+  const waterFootprintSaved = recentDonations.reduce((sum: number, donation: any) => sum + ((donation.impactMetrics && donation.impactMetrics.waterSaved) || 0), 0)
 
   // Generate trend data based on real data
-  const foodSavedTrend = []
-  const userEngagementTrend = []
-  const impactTrend = []
+  const foodSavedTrend: Array<any> = []
+  const userEngagementTrend: Array<any> = []
+  const impactTrend: Array<any> = []
 
   for (let i = Math.min(days, 30) - 1; i >= 0; i--) {
     const date = new Date(now)
     date.setDate(date.getDate() - i)
     const dateStr = date.toISOString().split("T")[0]
 
-    const dayListings = recentListings.filter((listing) => listing.createdAt.split("T")[0] === dateStr)
-    const dayCollections = recentCollections.filter((collection) => collection.collectedAt.split("T")[0] === dateStr)
+    const dayListings = recentListings.filter((listing: any) => {
+      const d = toDate(listing.createdAt)
+      return d && d.toISOString().split("T")[0] === dateStr
+    })
+
+    const dayCollections = recentCollections.filter((collection: any) => {
+      const d = toDate(collection.collectedAt || collection.reservedAt)
+      return d && d.toISOString().split("T")[0] === dateStr
+    })
 
     foodSavedTrend.push({
       date: dateStr,
@@ -43,7 +76,7 @@ function generateAnalyticsFromStorage(timeRange: string) {
 
     userEngagementTrend.push({
       date: dateStr,
-      users: new Set([...dayListings.map((l) => l.donorId), ...dayCollections.map((c) => c.collectorId)]).size,
+      users: new Set([...(dayListings as any[]).map((l) => l.donorId), ...(dayCollections as any[]).map((c) => c.collectorId)]).size,
       listings: dayListings.length,
     })
 
@@ -56,8 +89,9 @@ function generateAnalyticsFromStorage(timeRange: string) {
 
   // Calculate food type distribution from real data
   const foodTypeCount: Record<string, number> = {}
-  recentListings.forEach((listing) => {
-    const type = listing.foodType.replace("_", " ").replace(/\b\w/g, (l) => l.toUpperCase())
+  recentListings.forEach((listing: any) => {
+    const typeRaw = listing.foodType || "Prepared Food"
+    const type = String(typeRaw).replace("_", " ").replace(/\b\w/g, (l) => l.toUpperCase())
     foodTypeCount[type] = (foodTypeCount[type] || 0) + 1
   })
 
@@ -69,7 +103,7 @@ function generateAnalyticsFromStorage(timeRange: string) {
 
   // Calculate organization stats from real data
   const orgStats: Record<string, { listings: number; impact: number }> = {}
-  recentListings.forEach((listing) => {
+  recentListings.forEach((listing: any) => {
     const org = listing.donorName || "Unknown"
     if (!orgStats[org]) {
       orgStats[org] = { listings: 0, impact: 0 }
@@ -140,13 +174,15 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const timeRange = searchParams.get("timeRange") || "30d"
 
-    const analyticsData = generateAnalyticsFromStorage(timeRange)
+    const analyticsData = await generateAnalyticsFromDB(timeRange)
 
     return NextResponse.json({
       message: "Analytics data retrieved successfully",
       analytics: analyticsData,
     })
   } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error("Analytics GET error:", error)
     return NextResponse.json({ message: "Internal server error" }, { status: 500 })
   }
 }
