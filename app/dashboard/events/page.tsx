@@ -9,7 +9,9 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Leaf, LogOut, Calendar, Plus, Search, MapPin, Clock, Users, AlertTriangle, CheckCircle } from "lucide-react"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import Leaf from "@/components/leaf-custom"
+import { LogOut, Calendar, Plus, Search, MapPin, Clock, Users, AlertTriangle, CheckCircle } from "lucide-react"
 import { NotificationBell } from "@/components/notification-bell"
 import { CreateEventDialog } from "@/components/events/create-event-dialog"
 import { PostEventFoodDialog } from "@/components/events/post-event-food-dialog"
@@ -36,7 +38,8 @@ interface Event {
   organization: string
   status: "upcoming" | "ongoing" | "completed" | "cancelled"
   foodPrediction: {
-    expectedSurplus: number
+  expectedSurplus: number
+  expectedSurplusKg?: number
     confidence: "low" | "medium" | "high"
   }
   foodLogged: boolean
@@ -53,6 +56,8 @@ export default function EventsPage() {
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [showFoodDialog, setShowFoodDialog] = useState(false)
+  const [showDetails, setShowDetails] = useState(false)
+  const [detailEvent, setDetailEvent] = useState<Event | null>(null)
   const router = useRouter()
 
   useEffect(() => {
@@ -165,7 +170,7 @@ export default function EventsPage() {
       (event) =>
         event.status === "completed" &&
         !event.foodLogged &&
-  (event.foodPrediction?.expectedSurplus ?? 0) > 0 &&
+  ((event.foodPrediction?.expectedSurplusKg ?? event.foodPrediction?.expectedSurplus) ?? 0) > 0 &&
         new Date(event.endTime) > new Date(Date.now() - 24 * 60 * 60 * 1000), // Within last 24 hours
     )
   }
@@ -298,9 +303,9 @@ export default function EventsPage() {
                   {filteredEvents
                     .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
                     .slice(0, 10)
-                    .map((event) => (
+                    .map((event, idx) => (
                       <div
-                        key={event.id}
+                        key={event.id ?? (event as any)._id ?? idx}
                         className="flex items-center gap-4 p-4 border border-slate-200 rounded-lg hover:shadow-md transition-shadow"
                       >
                         <div className="flex-shrink-0">
@@ -314,9 +319,9 @@ export default function EventsPage() {
                             <Badge className={getStatusColor(event.status)}>
                               {event.status.charAt(0).toUpperCase() + event.status.slice(1)}
                             </Badge>
-                            {(event.foodPrediction?.expectedSurplus ?? 0) > 0 && (
+                            {((event.foodPrediction?.expectedSurplusKg ?? event.foodPrediction?.expectedSurplus) ?? 0) > 0 && (
                               <Badge variant="outline" className="text-xs">
-                                {event.foodPrediction?.expectedSurplus ?? 0}kg surplus
+                                {event.foodPrediction?.expectedSurplusKg ?? event.foodPrediction?.expectedSurplus ?? 0} kg surplus
                               </Badge>
                             )}
                           </div>
@@ -338,7 +343,7 @@ export default function EventsPage() {
                         <div className="flex items-center gap-2">
                           {event.status === "completed" &&
                             !event.foodLogged &&
-                            (event.foodPrediction?.expectedSurplus ?? 0) > 0 && (
+                            ((event.foodPrediction?.expectedSurplusKg ?? event.foodPrediction?.expectedSurplus) ?? 0) > 0 && (
                               <Button
                                 size="sm"
                                 onClick={() => {
@@ -366,8 +371,8 @@ export default function EventsPage() {
 
           <TabsContent value="list" className="space-y-6">
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredEvents.map((event) => (
-                <Card key={event.id} className="border-slate-200 hover:shadow-lg transition-shadow">
+              {filteredEvents.map((event, idx) => (
+                <Card key={event.id ?? (event as any)._id ?? idx} className="border-slate-200 hover:shadow-lg transition-shadow">
                   <CardHeader className="pb-3">
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
@@ -395,10 +400,10 @@ export default function EventsPage() {
                       <span>{event.expectedAttendees} expected attendees</span>
                     </div>
 
-                    {(event.foodPrediction?.expectedSurplus ?? 0) > 0 && (
+                            {((event.foodPrediction?.expectedSurplusKg ?? event.foodPrediction?.expectedSurplus) ?? 0) > 0 && (
                       <div className="flex items-center justify-between p-2 bg-amber-50 rounded-lg">
                         <span className="text-sm text-amber-800">
-                          Predicted surplus: {event.foodPrediction?.expectedSurplus ?? 0}kg
+                          Predicted surplus: {event.foodPrediction?.expectedSurplusKg ?? event.foodPrediction?.expectedSurplus ?? 0} kg
                         </span>
                         <Badge className={getConfidenceColor(event.foodPrediction?.confidence ?? "") } variant="secondary">
                           {event.foodPrediction?.confidence ?? "N/A"}
@@ -407,9 +412,9 @@ export default function EventsPage() {
                     )}
 
                     <div className="flex gap-2 mt-4">
-                      {event.status === "completed" &&
+                        {event.status === "completed" &&
                         !event.foodLogged &&
-                        event.foodPrediction.expectedSurplus > 0 && (
+                        ((event.foodPrediction?.expectedSurplusKg ?? event.foodPrediction?.expectedSurplus) ?? 0) > 0 && (
                           <Button
                             size="sm"
                             className="flex-1 bg-amber-500 hover:bg-amber-600"
@@ -421,7 +426,15 @@ export default function EventsPage() {
                             Log Food
                           </Button>
                         )}
-                      <Button size="sm" variant="outline" className="flex-1 bg-transparent">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="flex-1 bg-transparent"
+                        onClick={() => {
+                          setDetailEvent(event)
+                          setShowDetails(true)
+                        }}
+                      >
                         View Details
                       </Button>
                     </div>
@@ -443,11 +456,11 @@ export default function EventsPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    {filteredEvents
-                      .filter((event) => (event.foodPrediction?.confidence ?? "") === "high" && (event.foodPrediction?.expectedSurplus ?? 0) > 5)
-                      .map((event) => (
+                      {filteredEvents
+                      .filter((event) => (event.foodPrediction?.confidence ?? "") === "high" && ((event.foodPrediction?.expectedSurplusKg ?? event.foodPrediction?.expectedSurplus) ?? 0) > 5)
+                      .map((event, idx) => (
                         <div
-                          key={event.id}
+                          key={event.id ?? (event as any)._id ?? idx}
                           className="flex items-center justify-between p-4 bg-amber-50 border border-amber-200 rounded-lg"
                         >
                           <div>
@@ -456,7 +469,7 @@ export default function EventsPage() {
                               {formatDateTime(event.startTime)} • {event.location}
                             </p>
                             <p className="text-sm text-amber-800 mt-1">
-                              Expected surplus: {event.foodPrediction.expectedSurplus}kg
+                              Expected surplus: {event.foodPrediction.expectedSurplusKg ?? event.foodPrediction.expectedSurplus} kg
                             </p>
                           </div>
                           <div className="flex items-center gap-2">
@@ -504,7 +517,7 @@ export default function EventsPage() {
                           const weekFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
                           return eventDate >= now && eventDate <= weekFromNow
                         })
-                        .reduce((sum, e) => sum + (e.foodPrediction?.expectedSurplus ?? 0), 0)}
+                        .reduce((sum, e) => sum + ((e.foodPrediction?.expectedSurplusKg ?? e.foodPrediction?.expectedSurplus) ?? 0), 0)}
                       kg
                     </div>
                     <p className="text-sm text-slate-600">Expected this week</p>
@@ -541,6 +554,28 @@ export default function EventsPage() {
         eventsNeedingAttention={eventsNeedingAttention}
         onFoodLogged={fetchEvents}
       />
+
+      {/* Event Details Dialog */}
+      {detailEvent && (
+        <Dialog open={showDetails} onOpenChange={setShowDetails}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>{detailEvent.title}</DialogTitle>
+              <DialogDescription>{detailEvent.location}</DialogDescription>
+            </DialogHeader>
+            <div className="p-4 space-y-3">
+              <div className="text-sm text-slate-600">Organizer: {detailEvent.organizer}</div>
+              <div className="text-sm text-slate-600">When: {new Date(detailEvent.startTime).toLocaleString()} — {detailEvent.endTime ? new Date(detailEvent.endTime).toLocaleString() : 'N/A'}</div>
+              <div className="text-sm text-slate-600">Attendees: {detailEvent.expectedAttendees}</div>
+              <div className="text-sm text-slate-600">Predicted surplus: {detailEvent.foodPrediction?.expectedSurplusKg ?? detailEvent.foodPrediction?.expectedSurplus ?? 0} kg</div>
+              <div className="pt-2 text-sm text-slate-700">{detailEvent.description}</div>
+            </div>
+            <div className="flex gap-4 pt-4">
+              <Button onClick={() => setShowDetails(false)} variant="outline">Close</Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   )
 }

@@ -7,9 +7,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Leaf, LogOut, Plus, Search, MapPin, Clock, Users, AlertTriangle, Filter, Menu, QrCode } from "lucide-react"
+import Leaf from "@/components/leaf-custom"
+import { LogOut, Plus, Search, MapPin, Clock, Users, AlertTriangle, Filter, Menu, QrCode } from "lucide-react"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
-import { QRCodeDisplay } from "@/components/qr-code-display"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import Link from "next/link"
 
@@ -402,12 +402,7 @@ export default function FoodListingsPage() {
                     <Badge className={`${getStatusColor(listing.status)} font-medium flex-shrink-0 border`}>
                       {listing.status.charAt(0).toUpperCase() + listing.status.slice(1)}
                     </Badge>
-                    {listing.qrCode && (
-                      <Badge className="bg-cyan-100 text-cyan-800 border-cyan-200 text-xs">
-                        <QrCode className="h-3 w-3 mr-1" />
-                        QR Available
-                      </Badge>
-                    )}
+                    {/* QR option removed from listing summary; QR tickets are issued when reserved */}
                   </div>
                 </div>
               </CardHeader>
@@ -476,7 +471,6 @@ export default function FoodListingsPage() {
                     </Button>
                   )}
 
-                  {listing.qrCode && listing.status === "available" && <QRCodeDisplay listing={listing} />}
 
                   <Button
                     size="sm"
@@ -576,14 +570,7 @@ export default function FoodListingsPage() {
                     </div>
                   </div>
 
-                  {selectedListing.qrCode && (
-                    <div className="p-4 rounded-lg bg-gradient-to-tr from-cyan-50 to-white border border-cyan-100 flex flex-col items-start">
-                      <p className="text-xs text-cyan-500">QR Code</p>
-                      <div className="mt-2">
-                        <QRCodeDisplay listing={selectedListing} />
-                      </div>
-                    </div>
-                  )}
+                  {/* QR detail removed: QR is generated only when a reservation is made */}
                 </div>
               </div>
             ) : (

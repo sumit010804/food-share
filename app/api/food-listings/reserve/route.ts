@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getDatabase } from "@/lib/mongodb"
 import { ObjectId } from "mongodb"
 import fs from 'fs'
+import { generateTicketToken } from '@/lib/qr-ticket'
 import { updateAnalyticsForDonation } from '@/lib/analytics'
 
 export async function POST(request: NextRequest) {
@@ -101,12 +102,10 @@ export async function POST(request: NextRequest) {
         recipientEmail: userEmail || null,
         recipientName: userName || null,
         reservedAt: now,
-        status: 'reserved',
         quantity: updatedListing.quantity || null,
         location: updatedListing.location || null,
         foodType: updatedListing.foodType || null,
-        createdAt: now,
-        updatedAt: now,
+  createdAt: now,
       }
 
       // Build a tolerant filter so we match existing collections saved with different id shapes
@@ -217,7 +216,31 @@ export async function POST(request: NextRequest) {
   // We previously attempted to return an in-memory placeholder, but build-time scoping made it error-prone.
   // A placeholder could be implemented safely in a subsequent change where we lift `collectionDoc` scope.
 
-    return NextResponse.json({ message: "Reserved", listing: updatedListing, collection: createdCollection })
+    // After ensuring collection placeholder, issue a QR ticket for pickup
+    let ticketInfo: any = null
+    try {
+      if (createdCollection) {
+        const ticketId = `tkt-${Date.now().toString()}-${createdCollection.id}`
+        const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString() // 1 hour default
+        const token = generateTicketToken(ticketId, createdCollection.id, userId || null, expiresAt)
+        const ticketsCol = db.collection('tickets')
+        const ticketDoc = {
+          id: ticketId,
+          collectionId: createdCollection.id,
+          token,
+          userId: userId || null,
+          expiresAt: new Date(expiresAt),
+          usedAt: null,
+          createdAt: new Date(),
+        }
+        await ticketsCol.insertOne(ticketDoc)
+        ticketInfo = { id: ticketId, token, expiresAt }
+      }
+    } catch (e) {
+      console.error('Failed to issue ticket for reservation', e)
+    }
+
+    return NextResponse.json({ message: "Reserved", listing: updatedListing, collection: createdCollection, ticket: ticketInfo })
   } catch (error) {
     console.error("Reserve handler error:", error)
     const msg = (error && (error as any).message) ? (error as any).message : 'Internal server error'

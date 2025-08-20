@@ -8,7 +8,8 @@ import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
-import { Leaf, LogOut, Bell, Clock, Settings, Check, X, AlertTriangle } from "lucide-react"
+import Leaf from "@/components/leaf-custom"
+import { LogOut, Bell, Clock, Settings, Check, X, AlertTriangle } from "lucide-react"
 import Link from "next/link"
 
 interface User {
@@ -67,7 +68,21 @@ export default function NotificationsPage() {
 
   const fetchNotifications = async () => {
     try {
-      const response = await fetch("/api/notifications")
+      // read user id directly from localStorage (useEffect sets user then calls this,
+      // but reading here is robust if state hasn't updated yet)
+      let userId: string | null = null
+      try {
+        const userRaw = localStorage.getItem("user")
+        if (userRaw) {
+          const parsed = JSON.parse(userRaw)
+          userId = parsed?.id || parsed?._id || null
+        }
+      } catch (e) {
+        userId = null
+      }
+
+      const url = userId ? `/api/notifications?userId=${encodeURIComponent(userId)}` : "/api/notifications"
+      const response = await fetch(url)
       const data = await response.json()
       setNotifications(data.notifications || [])
     } catch (error) {
@@ -387,7 +402,13 @@ export default function NotificationsPage() {
             ) : (
               filteredNotifications.map((notification, idx) => (
                 <Card
-                  key={notification.id ?? `${notification.type}-${idx}`}
+                  key={
+                    notification.id
+                      ? `${notification.id}-${notification.type}`
+                      : (notification as any)._id
+                      ? `${(notification as any)._id}-${notification.type}`
+                      : `${notification.type}-${new Date(notification.createdAt).getTime() ?? idx}-${idx}`
+                  }
                   className={`border-slate-200 transition-all hover:shadow-md ${
                     !notification.isRead ? "bg-cyan-50/50 border-cyan-200" : ""
                   }`}

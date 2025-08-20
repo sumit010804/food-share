@@ -23,6 +23,7 @@ import {
   CheckCircle,
   ArrowRight,
 } from "lucide-react"
+import TicketQRButton from '@/components/ticket-qr-button'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, BarChart, Bar } from "recharts"
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 
@@ -224,12 +225,27 @@ export default function DonationHistoryPage() {
             const qty = listing.quantity || listing.raw?.quantity || null
             const ft = (listing.foodType || '').toLowerCase()
             if (qty) {
+              // Convert common listing quantity types to kilograms for canonical display
+              const KG_PER_SERVING = 0.25
+              const KG_PER_PIECE = 0.2
+              let kgVal: number | null = null
               if (ft === 'meals') {
-                dd.quantity = `${qty} servings`
+                const n = Number(qty) || parseFloat(String(qty)) || 0
+                kgVal = Math.round(n * KG_PER_SERVING * 100) / 100
               } else if (ft === 'snacks' || ft === 'fruits' || ft === 'vegetables') {
-                dd.quantity = `${qty} pcs`
+                const n = Number(qty) || parseFloat(String(qty)) || 0
+                kgVal = Math.round(n * KG_PER_PIECE * 100) / 100
               } else {
-                dd.quantity = `${qty} kg`
+                // assume quantity already in kg when foodType not specific
+                const parsed = parseQuantityKg(qty)
+                kgVal = parsed && parsed > 0 ? Math.round(parsed * 100) / 100 : null
+              }
+
+              if (kgVal !== null) {
+                dd.quantity = `${kgVal} kg`
+                dd.quantityKg = kgVal
+              } else {
+                dd.quantity = `${qty}`
               }
             }
           }
@@ -979,41 +995,66 @@ export default function DonationHistoryPage() {
                         </div>
 
                         <div className="flex gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="border-cyan-200 text-cyan-700 hover:bg-cyan-50 bg-transparent"
-                          >
-                            <Eye className="h-4 w-4 mr-2" />
-                            Details
-                          </Button>
-                          {collection.status === 'reserved' && (
-                            <Button
-                              size="sm"
-                              className="bg-cyan-600 text-white hover-lift h-10"
-                              onClick={async () => {
-                                try {
-                                  const res = await fetch('/api/food-listings/collect', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ listingId: collection.listingId, collectedBy: user?.name, collectedAt: new Date().toISOString(), collectionMethod: 'manual' })
-                                  })
-                                  if (res.ok) {
-                                    // refresh collections/donations
-                                    loadCollectionData()
-                                    loadDonationData()
-                                  } else {
-                                    console.warn('Collect failed', await res.text())
-                                  }
-                                } catch (e) {
-                                  console.error('Collect error', e)
-                                }
-                              }}
-                            >
-                              <CheckCircle className="h-4 w-4 mr-2" />
-                              Collect
-                            </Button>
-                          )}
+                                          <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="border-cyan-200 text-cyan-700 hover:bg-cyan-50 bg-transparent"
+                                          >
+                                            <Eye className="h-4 w-4 mr-2" />
+                                            Details
+                                          </Button>
+
+                                          {/* If this reserved collection belongs to the current user (recipient),
+                                              show the Ticket QR so they can present it at pickup. Otherwise
+                                              show the Collect button for the lister/staff to mark pickup. */}
+                                          {collection.status === 'reserved' && (() => {
+                                            try {
+                                              const currentUser = user
+                                              const belongsToMe = currentUser && (
+                                                (collection.recipientId && currentUser.id && String(collection.recipientId) === String(currentUser.id)) ||
+                                                (collection.recipientEmail && currentUser.email && String(collection.recipientEmail) === String(currentUser.email))
+                                              )
+
+                                              if (belongsToMe) {
+                                                return (
+                                                  <div className="ml-2">
+                                                    {/* @ts-ignore */}
+                                                    <TicketQRButton collectionId={collection.id || collection.listingId} />
+                                                  </div>
+                                                )
+                                              }
+                                            } catch (e) {
+                                              // fall through to show collect button on any error
+                                            }
+
+                                            return (
+                                              <Button
+                                                size="sm"
+                                                className="bg-cyan-600 text-white hover-lift h-10"
+                                                onClick={async () => {
+                                                  try {
+                                                    const res = await fetch('/api/food-listings/collect', {
+                                                      method: 'POST',
+                                                      headers: { 'Content-Type': 'application/json' },
+                                                      body: JSON.stringify({ listingId: collection.listingId, collectedBy: user?.name, collectedAt: new Date().toISOString(), collectionMethod: 'manual' })
+                                                    })
+                                                    if (res.ok) {
+                                                      // refresh collections/donations
+                                                      loadCollectionData()
+                                                      loadDonationData()
+                                                    } else {
+                                                      console.warn('Collect failed', await res.text())
+                                                    }
+                                                  } catch (e) {
+                                                    console.error('Collect error', e)
+                                                  }
+                                                }}
+                                              >
+                                                <CheckCircle className="h-4 w-4 mr-2" />
+                                                Collect
+                                              </Button>
+                                            )
+                                          })()}
                         </div>
                       </div>
                     </div>

@@ -1,6 +1,7 @@
 import { SignupForm } from "@/components/auth/signup-form"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Leaf, Sparkles } from "lucide-react"
+import Leaf from "@/components/leaf-custom"
+import { Sparkles } from "lucide-react"
 import Link from "next/link"
 
 export default function SignupPage() {

@@ -1,7 +1,8 @@
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Leaf, Users, ArrowRight, Sparkles, Heart, MapPin, Phone, Mail, Globe } from "lucide-react"
+import Leaf from "@/components/leaf-custom"
+import { Users, ArrowRight, Sparkles, Heart, MapPin, Phone, Mail, Globe } from "lucide-react"
 
 export default function HomePage() {
   return (

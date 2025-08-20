@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Leaf, LogOut, Plus, Bell, BarChart3, Calendar, Users, TrendingUp, Clock, Sparkles } from "lucide-react"
+import Leaf from "@/components/leaf-custom"
+import { LogOut, Plus, Bell, BarChart3, Calendar, Users, TrendingUp, Clock, Sparkles } from "lucide-react"
 import { NotificationBell } from "@/components/notification-bell"
 import { ProfileCircle } from "@/components/profile-circle"
 import { QRScanner } from "@/components/qr-scanner"
@@ -44,11 +45,23 @@ export default function DashboardPage() {
     setLoadingData(true)
     setDataError(null)
     try {
+      // read user id from localStorage to request user-scoped notifications
+      let userId: string | null = null
+      try {
+        const userRaw = localStorage.getItem('user')
+        if (userRaw) {
+          const parsed = JSON.parse(userRaw)
+          userId = parsed?.id || parsed?._id || null
+        }
+      } catch (e) {
+        userId = null
+      }
+
       const [uRes, lRes, aRes, nRes] = await Promise.all([
         fetch('/api/users'),
         fetch('/api/food-listings'),
         fetch('/api/analytics'),
-        fetch('/api/notifications'),
+        fetch(userId ? `/api/notifications?userId=${encodeURIComponent(userId)}` : '/api/notifications'),
       ])
 
       if (!uRes.ok || !lRes.ok || !aRes.ok || !nRes.ok) {

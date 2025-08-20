@@ -16,7 +16,8 @@ import {
   ChartLegendContent,
 } from "@/components/ui/chart"
 import { Area, AreaChart, Bar, BarChart, Line, LineChart, Pie, PieChart, Cell, XAxis, YAxis } from "recharts"
-import { Leaf, LogOut, Users, Utensils, Droplets, Zap, Calendar, Award, Target, ArrowUp } from "lucide-react"
+import Leaf from "@/components/leaf-custom"
+import { LogOut, Users, Utensils, Droplets, Zap, Calendar, Award, Target, ArrowUp } from "lucide-react"
 import { NotificationBell } from "@/components/notification-bell"
 import Link from "next/link"
 

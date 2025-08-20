@@ -2,7 +2,8 @@
 import { type NextRequest, NextResponse } from "next/server"
 import clientPromise, { getDatabase } from "@/lib/mongodb"
 import { ObjectId } from "mongodb"
-import { generateQRCodeData } from "@/lib/qr-generator"
+// QR for pickup is now generated only when a reservation is made (tickets),
+// not at listing creation time.
 import type { FoodListing } from "@/lib/types"
 export async function GET() {
   try {
@@ -131,7 +132,7 @@ export async function POST(request: NextRequest) {
         console.error('Failed to resolve lister email from users collection', e)
       }
     }
-  const newListing: any = {
+    const newListing: any = {
       id: Date.now().toString(),
       title: data.title,
       description: data.description,
@@ -151,7 +152,7 @@ export async function POST(request: NextRequest) {
   // lister email (resolved above if not provided)
   createdByEmail: createdByEmail,
   createdAt: new Date().toISOString(),
-      qrCode: generateQRCodeData(data),
+      // qrCode removed: QR tickets are generated when a reservation is made
       collectedBy: null,
       collectedAt: null,
     };

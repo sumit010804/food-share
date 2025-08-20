@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { MapPin, Users, Clock } from "lucide-react"
 
@@ -40,6 +41,50 @@ export function CreateEventDialog({ open, onOpenChange, onEventCreated, user }: 
     expectedAttendees: "",
   })
 
+  const computePrediction = (type: string, attendees: number) => {
+    let expectedSurplus = 0
+    let confidence: "low" | "medium" | "high" = "low"
+
+    switch (type) {
+      case "conference":
+        expectedSurplus = Math.round(attendees * 0.08)
+        confidence = "high"
+        break
+      case "workshop":
+        expectedSurplus = Math.round(attendees * 0.05)
+        confidence = "medium"
+        break
+      case "seminar":
+        expectedSurplus = Math.round(attendees * 0.06)
+        confidence = "medium"
+        break
+      case "meeting":
+        expectedSurplus = Math.round(attendees * 0.12)
+        confidence = "high"
+        break
+      case "celebration":
+        expectedSurplus = Math.round(attendees * 0.15)
+        confidence = "high"
+        break
+      default:
+        expectedSurplus = Math.round(attendees * 0.07)
+        confidence = "low"
+    }
+
+    return { expectedSurplus, confidence }
+  }
+
+  const getConfidenceBadge = (confidence: "low" | "medium" | "high") => {
+    switch (confidence) {
+      case "high":
+        return <Badge className="bg-green-100 text-green-800">High</Badge>
+      case "medium":
+        return <Badge className="bg-amber-100 text-amber-800">Medium</Badge>
+      default:
+        return <Badge className="bg-red-100 text-red-800">Low</Badge>
+    }
+  }
+
   const handleInputChange = (field: string, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }))
   }
@@ -50,6 +95,8 @@ export function CreateEventDialog({ open, onOpenChange, onEventCreated, user }: 
     setError("")
 
     try {
+    const attendeesNum = Number.parseInt(formData.expectedAttendees) || 0
+    const prediction = computePrediction(formData.eventType, attendeesNum)
       const response = await fetch("/api/events", {
         method: "POST",
         headers: {
@@ -58,8 +105,13 @@ export function CreateEventDialog({ open, onOpenChange, onEventCreated, user }: 
         body: JSON.stringify({
           ...formData,
           expectedAttendees: Number.parseInt(formData.expectedAttendees),
-          organizer: user.name,
-          organization: user.organization,
+      organizer: user.name,
+      organizerId: user.id,
+      organizerEmail: user.email,
+      organization: user.organization,
+      expectedSurplus: prediction.expectedSurplus,
+      expectedSurplusKg: Math.round(prediction.expectedSurplus * 0.25 * 100) / 100,
+      confidence: prediction.confidence,
         }),
       })
 
@@ -206,6 +258,30 @@ export function CreateEventDialog({ open, onOpenChange, onEventCreated, user }: 
                 />
               </div>
             </div>
+          </div>
+
+          {/* Live prediction preview */}
+          <div className="p-4 bg-slate-50 rounded-lg">
+            {String(formData.expectedAttendees).trim() ? (
+              (() => {
+                const attendeesNum = Number.parseInt(formData.expectedAttendees) || 0
+                const pred = computePrediction(formData.eventType, attendeesNum)
+                const KG_PER_SERVING = 0.25
+                const predKg = Math.round(pred.expectedSurplus * KG_PER_SERVING * 100) / 100
+
+                return (
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-sm text-slate-600">Predicted Surplus</div>
+                      <div className="text-xl font-bold text-slate-800">{predKg} kg</div>
+                    </div>
+                    <div>{getConfidenceBadge(pred.confidence)}</div>
+                  </div>
+                )
+              })()
+            ) : (
+              <div className="text-sm text-slate-600">Enter expected attendees to see prediction</div>
+            )}
           </div>
 
           <div className="flex gap-4 pt-4">

@@ -26,7 +26,8 @@ interface Event {
   organization: string
   status: "upcoming" | "ongoing" | "completed" | "cancelled"
   foodPrediction: {
-    expectedSurplus: number
+  expectedSurplus: number
+  expectedSurplusKg?: number
     confidence: "low" | "medium" | "high"
   }
   foodLogged: boolean
@@ -91,10 +92,40 @@ export function PostEventFoodDialog({
       })
 
       if (foodResponse.ok) {
-        // Mark event as food logged
-        await fetch(`/api/events/${currentEvent.id}/food-logged`, {
-          method: "PATCH",
-        })
+        const resJson = await foodResponse.json()
+        // Try to estimate kg from submitted quantity or returned listing
+        const listing = resJson.listing || resJson.listing || null
+        const qty = formData.quantity || (listing && (listing.quantity || listing.raw?.quantity))
+
+        const parseQuantityToKg = (q: any) => {
+          if (!q) return null
+          const s = String(q).toLowerCase()
+          // simple patterns
+          const kgMatch = s.match(/([0-9]+(?:\.[0-9]+)?)\s*kg/)
+          if (kgMatch) return parseFloat(kgMatch[1])
+          const servingsMatch = s.match(/([0-9]+)\s*serv/)
+          if (servingsMatch) {
+            const servings = parseInt(servingsMatch[1])
+            // assume 0.25 kg per serving as heuristic
+            return Math.round(servings * 0.25 * 100) / 100
+          }
+          const numMatch = s.match(/([0-9]+(?:\.[0-9]+)?)/)
+          if (numMatch) return parseFloat(numMatch[1])
+          return null
+        }
+
+        const estimatedKg = parseQuantityToKg(qty)
+
+        // Mark event as food logged and attach actual surplus kg if available
+        try {
+          await fetch(`/api/events/${currentEvent.id}/food-logged`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ actualSurplusKg: estimatedKg }),
+          })
+        } catch (e) {
+          console.error('Failed to mark event as food logged with actual kg', e)
+        }
 
         onFoodLogged()
         onOpenChange(false)
@@ -144,9 +175,9 @@ export function PostEventFoodDialog({
                 </SelectTrigger>
                 <SelectContent>
                   {eventsNeedingAttention.map((evt) => (
-                    <SelectItem key={evt.id} value={evt.id}>
-                      {evt.title} - {evt.location} ({evt.foodPrediction.expectedSurplus}kg predicted)
-                    </SelectItem>
+                      <SelectItem key={evt.id} value={evt.id}>
+                        {evt.title} - {evt.location} ({evt.foodPrediction.expectedSurplusKg ?? evt.foodPrediction.expectedSurplus} kg predicted)
+                      </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -158,7 +189,7 @@ export function PostEventFoodDialog({
               <div className="flex items-center justify-between mb-2">
                 <h4 className="font-medium text-slate-800">{currentEvent.title}</h4>
                 <Badge className="bg-amber-100 text-amber-800">
-                  {currentEvent.foodPrediction.expectedSurplus}kg predicted
+                  {currentEvent.foodPrediction.expectedSurplusKg ?? currentEvent.foodPrediction.expectedSurplus} kg predicted
                 </Badge>
               </div>
               <div className="flex items-center gap-4 text-sm text-slate-600">
@@ -221,7 +252,7 @@ export function PostEventFoodDialog({
               <Label htmlFor="quantity">Quantity *</Label>
               <Input
                 id="quantity"
-                placeholder="e.g., 20 servings, 5kg, 30 pieces"
+                placeholder="e.g., 5 kg (approx), 20 servings, 30 pieces"
                 value={formData.quantity}
                 onChange={(e) => handleInputChange("quantity", e.target.value)}
                 required

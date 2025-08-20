@@ -12,7 +12,8 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Leaf, LogOut, ArrowLeft, Plus, X, Clock, AlertTriangle, MapPin } from "lucide-react"
+import Leaf from "@/components/leaf-custom"
+import { LogOut, ArrowLeft, Plus, X, Clock, AlertTriangle, MapPin } from "lucide-react"
 import Link from "next/link"
 
 interface User {
@@ -253,7 +254,7 @@ export default function CreateFoodListingPage() {
                   <Label htmlFor="quantity">Quantity *</Label>
                   <Input
                     id="quantity"
-                    placeholder="e.g., 20 servings, 5kg, 30 pieces"
+                    placeholder="e.g., 5 kg (approx), 20 servings, 30 pieces"
                     value={formData.quantity}
                     onChange={(e) => handleInputChange("quantity", e.target.value)}
                     required
