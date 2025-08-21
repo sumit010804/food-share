@@ -129,6 +129,11 @@ node scripts/setup-mongodb.js
 | `SMTP_USER` | Email username | No |
 | `SMTP_PASS` | Email password | No |
 
+Optional tuning:
+
+- `KG_PER_PERSON` (server): kilograms of food required to feed one person (default `0.5`).
+- `NEXT_PUBLIC_KG_PER_PERSON` (client): same as above for UI derivations (default `0.5`).
+
 ## Contributing
 
 1. Fork the repository

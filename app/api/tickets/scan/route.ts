@@ -98,11 +98,12 @@ export async function POST(request: NextRequest) {
           if (!foodKg) foodKg = 2
           const CO2_PER_KG = 2.5
           const WATER_L_PER_KG = 500
+          const KG_PER_PERSON = Number(process.env.KG_PER_PERSON || process.env.PEOPLE_KG_PER_PERSON || '0.5')
           const impactMetrics = {
             foodKg,
             co2Saved: Number((foodKg * CO2_PER_KG).toFixed(2)),
             waterSaved: Math.round(foodKg * WATER_L_PER_KG),
-            peopleFed: 1,
+            peopleFed: Math.max(0, Math.floor(foodKg / KG_PER_PERSON)),
           }
           const donationDoc: any = {
             id: `donation-${col.listingId}-${Date.now()}`,

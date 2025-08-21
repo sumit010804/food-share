@@ -6,7 +6,9 @@
     "build": "next build",
     "dev": "next dev",
     "lint": "next lint",
-    "start": "next start"
+    "start": "next start",
+    "db:indexes": "node -r dotenv/config scripts/create-indexes.mjs",
+    "db:cleanup:collections": "node -r dotenv/config scripts/cleanup-duplicate-collections.js"
   },
   "dependencies": {
     "@aws-sdk/credential-providers": "latest",
@@ -85,6 +87,7 @@
     "@types/nodemailer": "^6.4.17",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "dotenv": "^17.2.1",
     "postcss": "^8.5",
     "tailwindcss": "^4.1.9",
     "tw-animate-css": "1.3.3",

@@ -16,7 +16,7 @@ export async function updateAnalyticsForDonation(db: Db, donation: any) {
   // Use explicit impact metrics from the donation when present. Avoid non-zero fallbacks
   // which caused analytics to increment even when a donation had no computed metrics.
   const impact = (donation && donation.impactMetrics) || {}
-  const peopleServed = Number(impact.peopleServed || 0)
+  const peopleServed = Number((impact.peopleServed ?? impact.peopleFed) || 0)
   // Accept both carbonSaved and co2Saved
   const carbon = Number((impact.carbonSaved ?? impact.co2Saved) || 0)
   const water = Number(impact.waterSaved || 0)

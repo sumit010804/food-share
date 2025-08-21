@@ -60,6 +60,12 @@ interface CollectionRecord {
   location: string
   collectionMethod: "qr_scan" | "manual" | "direct"
   status?: string
+  // optional fields present for reserved but not yet collected
+  recipientId?: string
+  recipientEmail?: string
+  recipientName?: string
+  reservedAt?: string
+  updatedAt?: string
 }
 
 // real data will be loaded from the server
@@ -77,21 +83,30 @@ export default function DonationHistoryPage() {
   const [activeTab, setActiveTab] = useState("donations")
   const router = useRouter()
 
-  // Helper: dedupe collections by id or listingId, prefer the most recently updated entry
+  // Helper: dedupe collections by a canonical listing key; prefer DB-backed entries (with raw)
   const dedupeCollections = (items: any[]) => {
+    const keyOf = (x: any) => {
+      // Normalize across variants: collections.listingId (string), raw.listingId, raw.id, fallback to id
+      return (
+        (x.listingId && String(x.listingId)) ||
+        (x.raw?.listingId && String(x.raw.listingId)) ||
+        (x.raw?.id && String(x.raw.id)) ||
+        (x.id && String(x.id)) ||
+        `${x.listingTitle || ''}-${x.collectedAt || x.reservedAt || ''}`
+      )
+    }
+    const score = (x: any) => {
+      // Prefer DB-backed entries (raw present) by adding a large bias
+      const bias = x.raw ? 1_000_000_000 : 0
+      const t = new Date(x.updatedAt || x.collectedAt || x.reservedAt || 0).getTime() || 0
+      return bias + t
+    }
     const map = new Map<string, any>()
     for (const c of items) {
-  // Use listingId as canonical key when available so entries that have different id shapes
-  // (synthesized vs DB doc) still dedupe correctly.
-  const key = (c.listingId && String(c.listingId)) || (c.id && String(c.id)) || `${c.listingTitle}-${c.collectedAt || c.reservedAt || ''}`
-      const existing = map.get(key)
-      if (!existing) {
-        map.set(key, c)
-        continue
-      }
-      const existingTs = new Date(existing.updatedAt || existing.collectedAt || existing.reservedAt || 0).getTime()
-      const cTs = new Date(c.updatedAt || c.collectedAt || c.reservedAt || 0).getTime()
-      if (cTs >= existingTs) map.set(key, c)
+      const key = keyOf(c)
+      const prev = map.get(key)
+      if (!prev) { map.set(key, c); continue }
+      if (score(c) >= score(prev)) map.set(key, c)
     }
     return Array.from(map.values())
   }
@@ -128,6 +143,8 @@ export default function DonationHistoryPage() {
 
         if (belongsToMe) {
           setCollections((prev: any[]) => dedupeCollections(prev.concat([col])))
+          // Replace synthetic entries with canonical ones from server soon after
+          setTimeout(() => loadCollectionData(), 300)
           return
         }
       }
@@ -269,13 +286,13 @@ export default function DonationHistoryPage() {
         const activeUser = overrideUser || user
         const userId = activeUser?.id
         const userEmail = activeUser?.email
-        const myCollections = allCollections.filter((c: any) => {
+  const myCollectionsRaw = allCollections.filter((c: any) => {
           if (!userId && !userEmail) return false
           if (c.recipientId && userId && String(c.recipientId) === String(userId)) return true
           if (c.recipientEmail && userEmail && String(c.recipientEmail) === String(userEmail)) return true
           return false
         })
-        let merged = myCollections
+  let merged = dedupeCollections(myCollectionsRaw)
 
         // Also include any reserved listings where the listing.reservedByEmail matches the user's email
         try {
@@ -292,7 +309,8 @@ export default function DonationHistoryPage() {
               return false
             }).map((l: any) => ({
               id: `synth-${l.id || l._id}`,
-              listingId: l.id || (l._id && String(l._id)),
+              // Align listingId with how the server stores it in collections (prefer raw.id when present)
+              listingId: (l.raw && l.raw.id) ? String(l.raw.id) : (l.id || (l._id && String(l._id))),
               listingTitle: l.title,
               donatedBy: l.donorName || l.providerName || null,
               organization: l.organization || null,
@@ -347,7 +365,7 @@ export default function DonationHistoryPage() {
 
     setFilteredDonations(filtered)
 
-    let filteredCols = collections
+  let filteredCols = collections
     if (searchTerm) {
       filteredCols = filteredCols.filter(
         (collection) =>
@@ -356,7 +374,7 @@ export default function DonationHistoryPage() {
           collection.donatedBy.toLowerCase().includes(searchTerm.toLowerCase()),
       )
     }
-    setFilteredCollections(filteredCols)
+  setFilteredCollections(dedupeCollections(filteredCols))
   }, [searchTerm, statusFilter, recipientFilter, donations, collections])
 
   const getStatusColor = (status: string) => {
@@ -416,7 +434,9 @@ export default function DonationHistoryPage() {
   // Conversion constants (sensible defaults; adjust if you have better domain values)
   const CO2_PER_KG = 2.5 // kg CO2 saved per kg of food
   const WATER_L_PER_KG = 500 // liters of water saved per kg of food
-  const MEALS_PER_KG = 2 // approximate number of meals per kg of food
+  // Configurable minimum kg required per person; default 0.5 kg/person
+  const KG_PER_PERSON = Number(process.env.NEXT_PUBLIC_KG_PER_PERSON || '0.5')
+  const MEALS_PER_KG = KG_PER_PERSON > 0 ? (1 / KG_PER_PERSON) : 2
 
   // Parse a quantity value into kilograms. Supports formats like:
   // "5 kg", "500 g", "3 servings", "2 pcs", "4 pieces", or numeric values.
@@ -467,7 +487,7 @@ export default function DonationHistoryPage() {
     }
     return 0
   }
-  // totalImpact: compute total weight (with fallback) and unique recipients
+  // totalImpact: compute total weight (with fallback) and people fed
   const DEFAULT_WEIGHT_PER_DONATION = 2 // kg fallback when a donation has no quantity info
 
   // Prefer persisted per-donation impactMetrics where available (co2Saved, waterSaved, peopleFed).
@@ -475,37 +495,36 @@ export default function DonationHistoryPage() {
   let totalWeight = 0
   let totalCo2 = 0
   let totalWater = 0
-  const recipientSet = new Set<string>()
+  let totalPeopleFed = 0
   for (const donation of donations) {
     const dd: any = donation
     // If the donation has persisted impactMetrics, use them
+    // Gather weight even if impactMetrics exist (to derive people-fed fallback)
+    let weight = 0
+    if (dd.impactMetrics && dd.impactMetrics.foodKg) {
+      weight = Number(dd.impactMetrics.foodKg) || 0
+    }
+    if (!weight) weight = getDonationWeight(dd)
+    if (!weight || weight <= 0) weight = DEFAULT_WEIGHT_PER_DONATION
+
     if (dd.impactMetrics && (dd.impactMetrics.co2Saved || dd.impactMetrics.waterSaved || dd.impactMetrics.foodKg)) {
       totalCo2 += Number(dd.impactMetrics.co2Saved || 0)
       totalWater += Number(dd.impactMetrics.waterSaved || 0)
-      totalWeight += Number(dd.impactMetrics.foodKg || 0)
-      if (dd.impactMetrics.peopleFed) {
-        // If the donation explicitly recorded peopleFed, add it; else we still count unique recipients below
-        // but keep peopleFed per-donation additive as a hint (we'll prefer unique-recipient count for UI)
-      }
+      totalWeight += Number(dd.impactMetrics.foodKg || weight || 0)
     } else {
-      // derive from available fields
-      let weight = getDonationWeight(dd)
-      if (!weight || weight <= 0) weight = DEFAULT_WEIGHT_PER_DONATION
       totalWeight += weight
       totalCo2 += weight * CO2_PER_KG
       totalWater += weight * WATER_L_PER_KG
     }
-
-    // Gather unique recipient identifiers (prefer id, then email, then name)
-    if (dd.recipientId) recipientSet.add(String(dd.recipientId))
-    else if (dd.recipientEmail) recipientSet.add(String(dd.recipientEmail))
-    else if (dd.donatedTo) recipientSet.add(String(dd.donatedTo))
+    // Prefer explicit peopleFed, else derive from weight
+  const derivedPeople = Math.max(0, Math.floor(weight * MEALS_PER_KG))
+    totalPeopleFed += Number(dd.impactMetrics?.peopleFed || dd.impactMetrics?.peopleServed || derivedPeople)
   }
 
   const totalImpact = {
     co2Saved: totalCo2,
     waterSaved: Math.round(totalWater),
-    peopleFed: recipientSet.size,
+  peopleFed: totalPeopleFed,
   }
 
   // --- Chart helpers ---
@@ -1018,9 +1037,9 @@ export default function DonationHistoryPage() {
                                               if (belongsToMe) {
                                                 return (
                                                   <div className="ml-2">
-                                                    {/* Prefer listingId to avoid synthetic ids; fallback to id */}
+                                                    {/* Provide both collectionId (if present) and listingId for robust lookup */}
                                                     {/* @ts-ignore */}
-                                                    <TicketQRButton collectionId={collection.listingId || collection.id} />
+                                                    <TicketQRButton collectionId={collection.id || collection.listingId} listingId={collection.listingId || collection.id} />
                                                   </div>
                                                 )
                                               }

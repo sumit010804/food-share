@@ -86,9 +86,9 @@ export async function POST(request: NextRequest) {
 
     // Ensure a collection placeholder exists in MongoDB so the reserver sees it in Donation History.
     // Use an upsert (findOneAndUpdate with upsert) so this is robust to races and partial failures.
-    let createdCollection: any = null
-    // hoist collectionDoc so final fallback insert can reference it outside the try block
-    let collectionDoc: any = null
+  let createdCollection: any = null
+  // hoist collectionDoc so final fallback insert can reference it outside the try block
+  let collectionDoc: any = null
     try {
       const collectionsCol = db.collection('collections')
       const listingIdStr = updatedListing.id || (updatedListing._id && String(updatedListing._id))
@@ -109,11 +109,14 @@ export async function POST(request: NextRequest) {
       }
 
       // Build a tolerant filter so we match existing collections saved with different id shapes
-      const matchFilters: any[] = [ { listingId: listingIdStr }, { id: listingIdStr } ]
+      // Only match by listingId (string or ObjectId). Do not match by `id` field because that is the
+      // collection document id (e.g., col-...) and not the listing id.
+      const matchFilters: any[] = [ { listingId: listingIdStr } ]
       if (/^[0-9a-fA-F]{24}$/.test(listingIdStr)) {
         try {
           const oid = new ObjectId(listingIdStr)
           matchFilters.push({ listingId: oid })
+          // legacy: some very old docs may have used listingId as _id
           matchFilters.push({ _id: oid })
         } catch (e) {
           // ignore invalid ObjectId conversion
@@ -130,7 +133,6 @@ export async function POST(request: NextRequest) {
   // (removed debug file logging)
 
       if (upsertRes && upsertRes.value) {
-        try { fs.appendFileSync('data/reserve_debug.log', JSON.stringify({ ts: new Date().toISOString(), event: 'upsert_success', value: upsertRes.value }) + "\n") } catch(e){}
         createdCollection = upsertRes.value
       } else {
         try { console.error('reserve: upsertRes missing value', { upsertRes: (upsertRes as any) }) } catch(e){}
@@ -149,9 +151,9 @@ export async function POST(request: NextRequest) {
           // ignore
         }
 
-        // Final fallback: try a direct fetch by listingId or id; if missing, insert
+        // Final fallback: try a direct fetch by listingId (string/ObjectId). If missing, insert once.
         if (!createdCollection) {
-          const fetched = await collectionsCol.findOne({ $or: [{ listingId: listingIdStr }, { id: listingIdStr }] })
+          const fetched = await collectionsCol.findOne({ $or: matchFilters })
           if (fetched) {
             createdCollection = fetched
           } else {
@@ -161,7 +163,7 @@ export async function POST(request: NextRequest) {
             } catch (insErr) {
               console.error('collections insert fallback failed', insErr)
               // As a last resort try a fetch again - may have been inserted by race
-              const finalFetch = await collectionsCol.findOne({ $or: [{ listingId: listingIdStr }, { id: listingIdStr }] })
+              const finalFetch = await collectionsCol.findOne({ $or: matchFilters })
               try { console.error('reserve: finalFetch after insert failure', { finalFetch }) } catch(e){}
               try {
                 const total = await collectionsCol.countDocuments()
@@ -191,7 +193,7 @@ export async function POST(request: NextRequest) {
       createdCollection = norm
     }
 
-    // If a collection placeholder was created, increment analytics reserved counters
+  // If a collection placeholder was created, increment analytics reserved counters
     try {
       if (createdCollection) {
         // We treat a reservation as an incremental collection event of type 'reserved'
@@ -201,16 +203,8 @@ export async function POST(request: NextRequest) {
       console.error('Failed to update analytics on reserve', e)
     }
 
-
-    // If previous upsert/insert attempts didn't produce a collection, try one final insert (defensive).
-    if (!createdCollection) {
-      try {
-        const ins = await db.collection('collections').insertOne(collectionDoc)
-        createdCollection = await db.collection('collections').findOne({ _id: ins.insertedId })
-      } catch (e) {
-        console.error('final insert for collection failed', e)
-      }
-    }
+  // Remove aggressive final blind insert to avoid accidental duplication. Instead,
+  // rely on the earlier upsert + targeted fallbacks only.
 
   // If DB attempts did not produce a saved collection, return null (client will fall back to events/fetch).
   // We previously attempted to return an in-memory placeholder, but build-time scoping made it error-prone.

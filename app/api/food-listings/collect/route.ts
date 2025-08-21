@@ -6,7 +6,7 @@ import { ObjectId } from 'mongodb'
 
 export async function POST(request: NextRequest) {
   try {
-    const { listingId, collectedBy, collectedAt, collectionMethod = "qr_scan" } = await request.json()
+  const { listingId, collectedBy, collectedAt, collectionMethod = "qr_scan" } = await request.json()
 
   const db = await getDatabase()
   const collectionsCol = db.collection('collections')
@@ -14,14 +14,29 @@ export async function POST(request: NextRequest) {
   const donationsCol = db.collection('donations')
   const notificationsCol = db.collection('notifications')
 
+  // Build robust match filters so we can find collections regardless of whether listingId was stored
+  // as a string or an ObjectId in previous runs.
+  const listingIdStr = String(listingId)
+  const matchFilters: any[] = [{ listingId: listingIdStr }, { id: listingIdStr }]
+  if (/^[0-9a-fA-F]{24}$/.test(listingIdStr)) {
+    try {
+      const oid = new ObjectId(listingIdStr)
+      matchFilters.push({ listingId: oid })
+      matchFilters.push({ _id: oid })
+      matchFilters.push({ id: oid })
+    } catch (e) {
+      // ignore invalid ObjectId conversion
+    }
+  }
+
   // find collection either by listingId field or by id
-  let existing = await collectionsCol.findOne({ $or: [{ listingId }, { id: listingId }] })
+  let existing = await collectionsCol.findOne({ $or: matchFilters })
 
       // If no collection doc exists yet, try to find the reserved food listing and create a collection from it
       if (!existing) {
-        const listingQueries: any[] = [{ id: listingId }]
-        if (/^[0-9a-fA-F]{24}$/.test(String(listingId))) {
-          try { listingQueries.push({ _id: new ObjectId(String(listingId)) }) } catch (e) { /* ignore */ }
+        const listingQueries: any[] = [{ id: listingIdStr }]
+        if (/^[0-9a-fA-F]{24}$/.test(listingIdStr)) {
+          try { listingQueries.push({ _id: new ObjectId(listingIdStr) }) } catch (e) { /* ignore */ }
         }
         const listingDoc = await foodListingsCol.findOne({ $or: listingQueries })
         if (!listingDoc) {
@@ -33,7 +48,7 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ message: 'Item already collected' }, { status: 400 })
         }
 
-        // Create collection document from listing
+        // Prepare collection document from listing for upsert
         const now = new Date()
         const collectionDoc = {
           id: `col-${Date.now().toString()}-${listingDoc.id || listingDoc._id}`,
@@ -52,8 +67,14 @@ export async function POST(request: NextRequest) {
           createdAt: now,
           updatedAt: now,
         }
-        const insertRes = await collectionsCol.insertOne(collectionDoc)
-        existing = await collectionsCol.findOne({ _id: insertRes.insertedId })
+
+        // Upsert to avoid duplicate documents when prior runs stored listingId in a different type
+        const upsertRes = await collectionsCol.findOneAndUpdate(
+          { $or: matchFilters },
+          { $setOnInsert: collectionDoc, $set: { updatedAt: now } },
+          { upsert: true, returnDocument: 'after' }
+        )
+        existing = upsertRes?.value || (await collectionsCol.findOne({ $or: matchFilters }))
       }
 
       // Ensure we have a collection document
@@ -68,9 +89,10 @@ export async function POST(request: NextRequest) {
       )
 
       // Update corresponding food listing status to collected
-      const listingQueries2: any[] = [{ id: existing.listingId || listingId }]
-      if (/^[0-9a-fA-F]{24}$/.test(String(existing.listingId || listingId))) {
-        try { listingQueries2.push({ _id: new ObjectId(String(existing.listingId || listingId)) }) } catch (e) { /* ignore */ }
+      const lidStr = String(existing.listingId || listingId)
+      const listingQueries2: any[] = [{ id: lidStr }]
+      if (/^[0-9a-fA-F]{24}$/.test(lidStr)) {
+        try { listingQueries2.push({ _id: new ObjectId(lidStr) }) } catch (e) { /* ignore */ }
       }
 
       await foodListingsCol.updateOne({ $or: listingQueries2 }, { $set: { status: 'collected', collectedAt: new Date(), collectedBy } })
@@ -99,12 +121,14 @@ export async function POST(request: NextRequest) {
   // Impact multipliers: 1 kg => 2.5 kg CO2
   const CO2_PER_KG = 2.5
       const WATER_L_PER_KG = 500
+      const KG_PER_PERSON = Number(process.env.KG_PER_PERSON || process.env.PEOPLE_KG_PER_PERSON || '0.5')
 
       const impactMetrics = {
         foodKg,
         co2Saved: Number((foodKg * CO2_PER_KG).toFixed(2)),
         waterSaved: Math.round(foodKg * WATER_L_PER_KG),
-        peopleFed: 1, // conservative: counts as one served; UI aggregates unique recipients separately
+        // People fed is derived from minimum kg required per person; allow 0 if below threshold
+        peopleFed: Math.max(0, Math.floor(foodKg / KG_PER_PERSON)),
       }
 
       // Insert a donation record including computed impact metrics
