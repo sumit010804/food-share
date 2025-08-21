@@ -5,6 +5,15 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Camera, X, QrCode, CheckCircle } from 'lucide-react'
+// Fallback decoder for browsers without BarcodeDetector
+// jsQR is a lightweight pure-JS QR decoder that works on canvas pixel data.
+// We conditionally import it at runtime to avoid SSR issues.
+let jsQR: any = null
+if (typeof window !== 'undefined') {
+  // dynamic import (ignored by SSR)
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  try { jsQR = require('jsqr') } catch {}
+}
 
 export default function TicketScanner({ scannerId, expectedListingId: expectedFromProps }: { scannerId?: string, expectedListingId?: string }) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
@@ -14,6 +23,7 @@ export default function TicketScanner({ scannerId, expectedListingId: expectedFr
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<any | null>(null)
   const [expectedListingId, setExpectedListingId] = useState<string | undefined>(expectedFromProps)
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
   useEffect(() => {
     return () => {
@@ -80,7 +90,36 @@ export default function TicketScanner({ scannerId, expectedListingId: expectedFr
       return
     }
 
-    // Fallback: keep camera open but ask user to paste token manually
+    // Fallback: use jsQR if available to decode frames from a canvas
+    const canvas = canvasRef.current
+    if (canvas && jsQR) {
+      const ctx = canvas.getContext('2d')
+      const step = () => {
+        if (!isScanning || !video.videoWidth || !video.videoHeight) {
+          requestAnimationFrame(step)
+          return
+        }
+        try {
+          canvas.width = video.videoWidth
+          canvas.height = video.videoHeight
+          ctx?.drawImage(video, 0, 0, canvas.width, canvas.height)
+          const img = ctx?.getImageData(0, 0, canvas.width, canvas.height)
+          if (img) {
+            const code = jsQR(img.data, img.width, img.height)
+            if (code && code.data) {
+              stopCamera()
+              handleToken(String(code.data))
+              return
+            }
+          }
+        } catch {}
+        requestAnimationFrame(step)
+      }
+      requestAnimationFrame(step)
+      return
+    }
+
+    // Final fallback: no decoder available; user must paste token manually.
   }
 
   const handleToken = async (token: string) => {
@@ -157,6 +196,8 @@ export default function TicketScanner({ scannerId, expectedListingId: expectedFr
             <div className="space-y-3">
               <div className="w-full rounded overflow-hidden relative">
                 <video ref={videoRef} autoPlay muted playsInline className="w-full h-64 bg-black object-cover" />
+                {/* hidden canvas for jsQR fallback */}
+                <canvas ref={canvasRef} className="hidden" />
                 <div className="absolute inset-0 border-2 border-emerald-400 rounded" />
               </div>
 
