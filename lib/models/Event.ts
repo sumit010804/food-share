@@ -28,6 +28,7 @@ export interface Event {
 export const eventSchema = {
   validator: {
     $jsonSchema: {
+      
       bsonType: "object",
       required: [
         "title",
