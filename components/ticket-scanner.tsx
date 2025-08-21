@@ -6,13 +6,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Camera, X, QrCode, CheckCircle } from 'lucide-react'
 
-export default function TicketScanner({ scannerId }: { scannerId?: string }) {
+export default function TicketScanner({ scannerId, expectedListingId: expectedFromProps }: { scannerId?: string, expectedListingId?: string }) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const [stream, setStream] = useState<MediaStream | null>(null)
   const [isScanning, setIsScanning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<any | null>(null)
+  const [expectedListingId, setExpectedListingId] = useState<string | undefined>(expectedFromProps)
 
   useEffect(() => {
     return () => {
@@ -93,7 +94,7 @@ export default function TicketScanner({ scannerId }: { scannerId?: string }) {
       const res = await fetch('/api/tickets/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, scannerId: deviceId }),
+        body: JSON.stringify({ token, scannerId: deviceId, expectedListingId: expectedListingId || undefined }),
       })
       const js = await res.json()
       if (res.ok) {
@@ -174,7 +175,22 @@ export default function TicketScanner({ scannerId }: { scannerId?: string }) {
               </div>
 
               <div className="text-sm text-slate-600">If automatic camera scan fails, paste the QR token below and press Validate.</div>
-              <textarea placeholder="Paste QR token here" id="ticket-token-input" className="w-full p-2 border rounded text-xs" rows={3} />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Expected Listing ID (optional, to enforce match)</label>
+                  <input
+                    type="text"
+                    placeholder="listing id"
+                    value={expectedListingId || ''}
+                    onChange={(e) => setExpectedListingId(e.target.value || undefined)}
+                    className="w-full p-2 border rounded text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">QR token</label>
+                  <textarea placeholder="Paste QR token here" id="ticket-token-input" className="w-full p-2 border rounded text-xs" rows={3} />
+                </div>
+              </div>
               <div className="flex gap-2">
                 <Button onClick={async () => {
                   const v = (document.getElementById('ticket-token-input') as HTMLTextAreaElement).value.trim()

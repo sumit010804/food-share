@@ -3,7 +3,7 @@
 import { useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Plus, Search, BarChart3, Calendar, History, Menu, X, Home } from "lucide-react"
+import { Plus, Search, BarChart3, Calendar, History, Menu, X, Home, QrCode } from "lucide-react"
 import Leaf from "@/components/leaf-custom"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -18,6 +18,14 @@ const navigationItems = [
     name: "Dashboard",
     href: "/dashboard",
     icon: Home,
+    color: "text-emerald-600",
+    bgColor: "bg-emerald-50",
+    hoverColor: "hover:bg-emerald-100",
+  },
+  {
+    name: "Scan QR",
+    href: "/scan",
+    icon: QrCode,
     color: "text-emerald-600",
     bgColor: "bg-emerald-50",
     hoverColor: "hover:bg-emerald-100",

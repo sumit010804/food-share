@@ -6,7 +6,7 @@ import { ObjectId } from 'mongodb'
 
 export async function POST(request: NextRequest) {
   try {
-    const { token, scannerId } = await request.json()
+  const { token, scannerId, expectedListingId } = await request.json()
     if (!token) return NextResponse.json({ message: 'Missing token' }, { status: 400 })
 
     const payload = verifyTicketToken(token)
@@ -20,6 +20,17 @@ export async function POST(request: NextRequest) {
     if (!existingBefore) return NextResponse.json({ message: 'Ticket not found' }, { status: 404 })
     if (existingBefore.usedAt) return NextResponse.json({ message: 'Ticket already used' }, { status: 409 })
     if (new Date(payload.expiresAt) < now) return NextResponse.json({ message: 'Ticket expired' }, { status: 400 })
+
+    // Validate collection and optional expected listing match before burning ticket
+    const dbCollections = db.collection('collections')
+    const colPre = await dbCollections.findOne({ id: existingBefore.collectionId })
+    if (!colPre) return NextResponse.json({ message: 'Collection not found for this ticket' }, { status: 404 })
+    if (expectedListingId && String(colPre.listingId) !== String(expectedListingId)) {
+      return NextResponse.json({ message: 'Ticket does not match this listing' }, { status: 409 })
+    }
+    if (colPre.status === 'collected') {
+      return NextResponse.json({ message: 'Item already collected' }, { status: 409 })
+    }
 
     // Mark ticket used once (atomic) – accept null or missing usedAt
     const usedAt = new Date()
@@ -44,7 +55,7 @@ export async function POST(request: NextRequest) {
     let collectionSummary: any = null
     let donationSummary: any = null
     try {
-      const collectionsCol = db.collection('collections')
+  const collectionsCol = db.collection('collections')
       let col = await collectionsCol.findOne({ id: ticket.collectionId })
       if (col && col.status !== 'collected') {
         await collectionsCol.updateOne({ id: ticket.collectionId }, { $set: { status: 'collected', collectedAt: usedAt, updatedAt: usedAt } })
