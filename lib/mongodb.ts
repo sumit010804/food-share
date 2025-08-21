@@ -10,7 +10,8 @@ function createClientPromise(): Promise<MongoClient> {
     throw new Error('Invalid/Missing environment variable: "MONGODB_URI"')
   }
 
-  const options = {}
+  // Keep server selection short so we can fall back quickly in dev when Atlas is unreachable
+  const options: any = { serverSelectionTimeoutMS: 5000 }
   const client = new MongoClient(uri, options)
 
   if (process.env.NODE_ENV === "development") {
@@ -19,11 +20,26 @@ function createClientPromise(): Promise<MongoClient> {
       _mongoClientPromise?: Promise<MongoClient>
     }
     if (!globalWithMongo._mongoClientPromise) {
-      globalWithMongo._mongoClientPromise = client.connect()
+      globalWithMongo._mongoClientPromise = (async () => {
+        try {
+          return await client.connect()
+        } catch (e) {
+          // Fallback to local Mongo in development
+          const fallbackUri = process.env.MONGODB_URI_FALLBACK || 'mongodb://127.0.0.1:27017'
+          try {
+            // directConnection avoids SRV/DNS in dev
+            const fallback = new MongoClient(fallbackUri, { ...options, directConnection: true })
+            return await fallback.connect()
+          } catch (e2) {
+            throw e
+          }
+        }
+      })()
     }
     return globalWithMongo._mongoClientPromise
   }
 
+  // In production, try primary URI once (no noisy fallback)
   return client.connect()
 }
 
