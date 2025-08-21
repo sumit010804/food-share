@@ -9,7 +9,6 @@ import Leaf from "@/components/leaf-custom"
 import { LogOut, Plus, Bell, BarChart3, Calendar, Users, TrendingUp, Clock, Sparkles } from "lucide-react"
 import { NotificationBell } from "@/components/notification-bell"
 import { ProfileCircle } from "@/components/profile-circle"
-import { QRScanner } from "@/components/qr-scanner"
 import Link from "next/link"
 
 interface User {
@@ -122,7 +121,6 @@ export default function DashboardPage() {
             <h1 className="text-2xl font-serif font-black text-emerald-800 tracking-tight">FoodShare</h1>
           </div>
           <div className="flex items-center gap-4 ml-auto">
-            <QRScanner />
             <NotificationBell />
             <ProfileCircle user={user} />
             {user && (

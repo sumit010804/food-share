@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -163,18 +163,7 @@ export function QRScanner({ onScan }: QRScannerProps) {
   }
 
   return (
-    <Dialog open={isOpen} onOpenChange={setIsOpen}>
-      <DialogTrigger asChild>
-        <Button
-          variant="outline"
-          size="sm"
-          className="bg-white/90 backdrop-blur-md border-emerald-200 hover:bg-emerald-50 transition-all duration-200"
-          onClick={() => setIsOpen(true)}
-        >
-          <QrCode className="h-4 w-4 mr-2" />
-          Scan QR
-        </Button>
-      </DialogTrigger>
+  <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">

@@ -24,6 +24,44 @@ export default function TicketScanner({ scannerId, expectedListingId: expectedFr
   const [result, setResult] = useState<any | null>(null)
   const [expectedListingId, setExpectedListingId] = useState<string | undefined>(expectedFromProps)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const [videoReady, setVideoReady] = useState(false)
+  const stopFlagRef = useRef(false)
+  const decodingRef = useRef(false)
+  // For E2E: allow injecting a QR image data URL for decoding without camera
+  const startTestImageLoop = (dataUrl: string) => {
+    if (!jsQR) return false
+    const canvas = canvasRef.current
+    if (!canvas) return false
+    const ctx = canvas.getContext('2d')
+    const img = new Image()
+    img.onload = () => {
+      const step = () => {
+        if (stopFlagRef.current || decodingRef.current) return
+        try {
+          canvas.width = img.width
+          canvas.height = img.height
+          ctx?.drawImage(img, 0, 0)
+          const imageData = ctx?.getImageData(0, 0, canvas.width, canvas.height)
+          if (imageData) {
+            const code = jsQR(imageData.data, imageData.width, imageData.height)
+            if (code && code.data) {
+              decodingRef.current = true
+              try {
+                const el = document.getElementById('ticket-token-input') as HTMLTextAreaElement | null
+                if (el) el.value = String(code.data)
+              } catch {}
+              handleToken(String(code.data))
+              return
+            }
+          }
+        } catch {}
+        requestAnimationFrame(step)
+      }
+      requestAnimationFrame(step)
+    }
+    img.src = dataUrl
+    return true
+  }
 
   useEffect(() => {
     return () => {
@@ -34,68 +72,114 @@ export default function TicketScanner({ scannerId, expectedListingId: expectedFr
   const startCamera = async () => {
     setError(null)
     try {
-      const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false })
+      const s = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false,
+      })
       setStream(s)
-      if (videoRef.current) videoRef.current.srcObject = s
-      setIsScanning(true)
-      scanLoop(s)
+      const v = videoRef.current
+      if (v) {
+        v.srcObject = s
+        try { v.setAttribute('playsinline', 'true') } catch {}
+        try { v.muted = true } catch {}
+        // wait for metadata then play to ensure inline rendering
+        await new Promise<void>((resolve) => {
+          const onLoaded = () => { v.play().catch(() => {}).finally(() => resolve()) }
+          if (v.readyState >= 1) onLoaded(); else v.addEventListener('loadedmetadata', onLoaded, { once: true })
+        })
+        setVideoReady(true)
+      }
+  stopFlagRef.current = false
+  setIsScanning(true)
+  // kick off decode loops in parallel
+  scanLoop()
+      // E2E: if a test QR image is injected, start decoding from it as well
+      try {
+        const testImg = (window as any).__TEST_QR_IMAGE as string | undefined
+        if (testImg) startTestImageLoop(testImg)
+      } catch {}
     } catch (e: any) {
       console.error('Camera error', e)
       setError('Unable to access camera. Check permissions.')
+      // E2E/test fallback: if a test QR image is provided, start decoding without camera
+      try {
+        const testImg = (window as any).__TEST_QR_IMAGE as string | undefined
+        if (testImg) {
+          stopFlagRef.current = false
+          decodingRef.current = false
+          setIsScanning(true)
+          startTestImageLoop(testImg)
+        }
+      } catch {}
     }
   }
 
   const stopCamera = () => {
+    const v = videoRef.current
+    if (v) {
+      try { v.pause() } catch {}
+      try { (v as any).srcObject = null } catch {}
+    }
     if (stream) {
       stream.getTracks().forEach((t) => t.stop())
       setStream(null)
     }
+    stopFlagRef.current = true
+    decodingRef.current = false
     setIsScanning(false)
+    setVideoReady(false)
   }
 
-  const scanLoop = async (s: MediaStream) => {
+  const scanLoop = async () => {
     if (!videoRef.current) return
     const video = videoRef.current
+    if (stopFlagRef.current || !isScanning) return
 
-    // Use BarcodeDetector if available (no extra dependency)
-    const hasDetector = (window as any).BarcodeDetector
-    if (hasDetector) {
-      const BarcodeDetector = (window as any).BarcodeDetector
-      let detector: any
+    // Start BarcodeDetector loop if supported
+    const BarcodeDetectorCtor = (window as any).BarcodeDetector
+    if (BarcodeDetectorCtor) {
+      let detector: any = null
       try {
-        detector = new BarcodeDetector({ formats: ['qr_code'] })
-      } catch (e) {
+        if (typeof BarcodeDetectorCtor.getSupportedFormats === 'function') {
+          const formats: string[] = await BarcodeDetectorCtor.getSupportedFormats()
+          if (!Array.isArray(formats) || !formats.includes('qr_code')) throw new Error('qr_code not supported')
+        }
+        detector = new BarcodeDetectorCtor({ formats: ['qr_code'] })
+      } catch {
         detector = null
       }
 
-      const loop = async () => {
-        if (!isScanning) return
-        try {
-          const barcodes = detector ? await detector.detect(video) : []
-          if (barcodes && barcodes.length) {
-            const v = barcodes[0].rawValue || barcodes[0].rawData || null
-            if (v) {
-              // stop camera while processing
-              stopCamera()
-              await handleToken(v)
-              return
+      if (detector) {
+        const detectLoop = async () => {
+          if (stopFlagRef.current || !isScanning || decodingRef.current) return
+          try {
+            const barcodes = await detector.detect(video)
+            if (barcodes && barcodes.length) {
+              const v = (barcodes[0] as any).rawValue || (barcodes[0] as any).rawData || null
+              if (v) {
+                decodingRef.current = true
+                try {
+                  const el = document.getElementById('ticket-token-input') as HTMLTextAreaElement | null
+                  if (el) el.value = String(v)
+                } catch {}
+                stopCamera()
+                await handleToken(String(v))
+                return
+              }
             }
-          }
-        } catch (e) {
-          // ignore per-frame decode errors
+          } catch {}
+          requestAnimationFrame(detectLoop)
         }
-        requestAnimationFrame(loop)
+        requestAnimationFrame(detectLoop)
       }
-      requestAnimationFrame(loop)
-      return
     }
 
-    // Fallback: use jsQR if available to decode frames from a canvas
+    // Start jsQR loop if available
     const canvas = canvasRef.current
     if (canvas && jsQR) {
       const ctx = canvas.getContext('2d')
       const step = () => {
-        if (!isScanning || !video.videoWidth || !video.videoHeight) {
+        if (stopFlagRef.current || !isScanning || decodingRef.current || !video.videoWidth || !video.videoHeight) {
           requestAnimationFrame(step)
           return
         }
@@ -107,6 +191,11 @@ export default function TicketScanner({ scannerId, expectedListingId: expectedFr
           if (img) {
             const code = jsQR(img.data, img.width, img.height)
             if (code && code.data) {
+              decodingRef.current = true
+              try {
+                const el = document.getElementById('ticket-token-input') as HTMLTextAreaElement | null
+                if (el) el.value = String(code.data)
+              } catch {}
               stopCamera()
               handleToken(String(code.data))
               return
@@ -116,10 +205,7 @@ export default function TicketScanner({ scannerId, expectedListingId: expectedFr
         requestAnimationFrame(step)
       }
       requestAnimationFrame(step)
-      return
     }
-
-    // Final fallback: no decoder available; user must paste token manually.
   }
 
   const handleToken = async (token: string) => {
@@ -195,7 +281,14 @@ export default function TicketScanner({ scannerId, expectedListingId: expectedFr
           <CardContent>
             <div className="space-y-3">
               <div className="w-full rounded overflow-hidden relative">
-                <video ref={videoRef} autoPlay muted playsInline className="w-full h-64 bg-black object-cover" />
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  muted
+                  playsInline
+                  className="w-full h-64 bg-black object-cover"
+                  style={{ opacity: videoReady ? 1 : 0.5 }}
+                />
                 {/* hidden canvas for jsQR fallback */}
                 <canvas ref={canvasRef} className="hidden" />
                 <div className="absolute inset-0 border-2 border-emerald-400 rounded" />

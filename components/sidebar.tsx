@@ -7,7 +7,6 @@ import { Plus, Search, BarChart3, Calendar, History, Menu, X, Home, QrCode } fro
 import Leaf from "@/components/leaf-custom"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { QRScanner } from "@/components/qr-scanner"
 
 interface SidebarProps {
   className?: string

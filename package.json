@@ -5,8 +5,10 @@
   "scripts": {
     "build": "next build",
     "dev": "next dev",
-    "lint": "next lint",
-    "start": "next start"
+  "lint": "next lint",
+  "start": "next start",
+  "test:e2e:install": "npx playwright install --with-deps chromium",
+  "test:e2e": "BASE_URL=http://localhost:3000 npx playwright test tests/e2e/auto_scan.spec.js"
   },
   "dependencies": {
     "@aws-sdk/credential-providers": "latest",
