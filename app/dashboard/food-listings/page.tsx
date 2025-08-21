@@ -12,6 +12,7 @@ import { LogOut, Plus, Search, MapPin, Clock, Users, AlertTriangle, Filter, Menu
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import Link from "next/link"
+import FoodListingsMap from "@/components/food-listings-map"
 
 interface User {
   id: string
@@ -55,7 +56,7 @@ export default function FoodListingsPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [searchTerm, setSearchTerm] = useState("")
   const [filterType, setFilterType] = useState("all")
-  const [filterStatus, setFilterStatus] = useState("all")
+  const [filterStatus, setFilterStatus] = useState("active")
   const router = useRouter()
 
   useEffect(() => {
@@ -169,7 +170,9 @@ export default function FoodListingsPage() {
       filtered = filtered.filter((listing) => listing.foodType === filterType)
     }
 
-    if (filterStatus !== "all") {
+    if (filterStatus === "active") {
+      filtered = filtered.filter((listing) => ["available", "reserved"].includes(listing.status))
+    } else if (filterStatus !== "all") {
       filtered = filtered.filter((listing) => listing.status === filterStatus)
     }
 
@@ -329,6 +332,24 @@ export default function FoodListingsPage() {
           </Link>
         </div>
 
+        {/* Live Map of Listings (if coordinates available) */}
+        <div className="mb-6 sm:mb-8 animate-slide-up">
+          <FoodListingsMap
+            listings={(listings || []).map((l) => ({
+              id: l.id,
+              title: l.title,
+              location: l.location,
+              availableUntil: l.availableUntil,
+              lat: (l as any).lat,
+              lng: (l as any).lng,
+              status: (l as any).status,
+              quantity: l.quantity,
+              foodType: l.foodType,
+              listerName: (l as any).providerName || (l as any).provider?.name || (l as any).donorName || (l as any).createdBy || "",
+            }))}
+          />
+        </div>
+
         {/* Search and Filters */}
         <div className="space-y-4 mb-6 sm:mb-8 animate-slide-up delay-100">
           {/* Search Bar */}
@@ -370,6 +391,7 @@ export default function FoodListingsPage() {
                 </div>
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="active">Active (Available + Reserved)</SelectItem>
                 <SelectItem value="all">All Status</SelectItem>
                 <SelectItem value="available">Available</SelectItem>
                 <SelectItem value="reserved">Reserved</SelectItem>

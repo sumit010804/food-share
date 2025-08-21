@@ -9,8 +9,11 @@ export async function GET() {
   try {
     const db = await getDatabase();
     const now = new Date();
-    // Fetch listings marked as available (some may have availableUntil as string)
-    const candidateListings = await db.collection("foodListings").find({ status: "available" }).toArray();
+    // Fetch listings that are still active for discovery (available or reserved)
+    const candidateListings = await db
+      .collection("foodListings")
+      .find({ status: { $in: ["available", "reserved"] } })
+      .toArray();
 
     const updatedListings: any[] = []
     for (const l of candidateListings) {
@@ -60,6 +63,9 @@ export async function GET() {
         quantity: l.quantity,
         unit: l.unit || l.unitOfMeasure || null,
         location: l.location,
+        // expose coordinates if present
+        lat: typeof l.lat === 'number' ? l.lat : (typeof l.latitude === 'number' ? l.latitude : undefined),
+        lng: typeof l.lng === 'number' ? l.lng : (typeof l.longitude === 'number' ? l.longitude : undefined),
         availableFrom: l.availableFrom || null,
         availableUntil: l.availableUntil || null,
         expiresAt: l.expiresAt || null,
@@ -139,6 +145,10 @@ export async function POST(request: NextRequest) {
       foodType: data.foodType,
       quantity: data.quantity,
       location: data.location,
+      // store coordinates if provided and valid numbers
+      ...(Number.isFinite(Number(data.lat)) && Number.isFinite(Number(data.lng))
+        ? { lat: Number(data.lat), lng: Number(data.lng) }
+        : {}),
       availableUntil: data.availableUntil,
       safeToEatHours: Number.parseInt(data.safetyHours || data.safeToEatHours),
       allergens: data.allergens || [],

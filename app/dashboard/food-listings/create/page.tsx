@@ -41,7 +41,9 @@ export default function CreateFoodListingPage() {
     location: "",
     availableUntil: "",
     safetyHours: "4",
-    specialInstructions: "",
+  specialInstructions: "",
+  lat: "",
+  lng: "",
   })
 
   useEffect(() => {
@@ -91,6 +93,8 @@ export default function CreateFoodListingPage() {
           tags,
           createdBy: user?.name,
           organization: user?.organization,
+          lat: formData.lat ? Number(formData.lat) : undefined,
+          lng: formData.lng ? Number(formData.lng) : undefined,
         }),
       })
 
@@ -273,6 +277,36 @@ export default function CreateFoodListingPage() {
                       className="pl-10"
                       required
                     />
+                  </div>
+                  <div className="flex gap-2 mt-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="bg-transparent"
+                      onClick={() => {
+                        if (!navigator.geolocation) {
+                          alert("Geolocation is not supported in your browser.")
+                          return
+                        }
+                        navigator.geolocation.getCurrentPosition(
+                          (pos) => {
+                            const { latitude, longitude } = pos.coords
+                            setFormData((prev) => ({ ...prev, lat: String(latitude), lng: String(longitude) }))
+                          },
+                          (err) => {
+                            console.warn("Geolocation denied or unavailable", err)
+                            alert("Location permission denied or unavailable.")
+                          },
+                          { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+                        )
+                      }}
+                    >
+                      Share Current Location
+                    </Button>
+                    {(formData.lat && formData.lng) && (
+                      <span className="text-xs text-slate-600 self-center">Lat: {Number(formData.lat).toFixed(5)}, Lng: {Number(formData.lng).toFixed(5)}</span>
+                    )}
                   </div>
                 </div>
               </div>
