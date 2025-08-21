@@ -23,7 +23,7 @@ A comprehensive zero-waste campus management system that connects food providers
 - Secure user registration and login
 - Role-based access control
 - JWT-based authentication
-- Password hashing with bcrypt
+- Password hashing with bcrypt 
 
 ## Technology Stack
 
