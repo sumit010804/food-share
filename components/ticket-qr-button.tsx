@@ -8,21 +8,34 @@ import { QrCode } from 'lucide-react'
 
 interface Props {
   collectionId: string
+  listingId?: string
   size?: number
 }
 
-export default function TicketQRButton({ collectionId, size = 240 }: Props) {
+export default function TicketQRButton({ collectionId, listingId, size = 240 }: Props) {
   const [ticket, setTicket] = useState<any>(null)
   const [loading, setLoading] = useState(false)
 
   const fetchTicket = async () => {
     setLoading(true)
     try {
-      const res = await fetch(`/api/tickets?collectionId=${encodeURIComponent(collectionId)}`)
+      let res = await fetch(`/api/tickets?collectionId=${encodeURIComponent(collectionId)}`)
       if (res.ok) {
         const data = await res.json()
         if (data.tickets && data.tickets.length) {
           setTicket(data.tickets[0])
+          return
+        }
+      }
+      // Fallback: try listingId if provided and different
+      if (listingId && listingId !== collectionId) {
+        const res2 = await fetch(`/api/tickets?collectionId=${encodeURIComponent(listingId)}`)
+        if (res2.ok) {
+          const data2 = await res2.json()
+          if (data2.tickets && data2.tickets.length) {
+            setTicket(data2.tickets[0])
+            return
+          }
         }
       }
     } catch (e) {
@@ -35,10 +48,11 @@ export default function TicketQRButton({ collectionId, size = 240 }: Props) {
   const createTicket = async () => {
     setLoading(true)
     try {
+      // Try with collectionId first; API will also fallback to listingId internally
       const res = await fetch('/api/tickets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ collectionId }),
+        body: JSON.stringify({ collectionId: collectionId || listingId || '' }),
       })
       if (res.ok) {
         const data = await res.json()

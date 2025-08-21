@@ -10,13 +10,29 @@ export async function POST(request: NextRequest) {
     const { collectionId, userId, validityMinutes = 60 } = body
     if (!collectionId) return NextResponse.json({ message: 'Missing collectionId' }, { status: 400 })
 
-    // Ensure collection exists
+    // Ensure collection exists. First, try matching by explicit collection id or _id.
     const collections = db.collection('collections')
     const q: any[] = [{ id: collectionId }]
     if (/^[0-9a-fA-F]{24}$/.test(String(collectionId))) {
       try { q.push({ _id: new ObjectId(String(collectionId)) }) } catch(e){}
     }
-    const collection = await collections.findOne({ $or: q })
+    let collection = await collections.findOne({ $or: q })
+
+    // Fallback: the client may have provided a listingId instead of a collection id.
+    // Try to find a collection document that references this listingId or also uses
+    // the listing id as its own id (older docs might).
+    if (!collection) {
+      try {
+        const alt = await collections.find({ $or: [ { listingId: collectionId }, { id: collectionId } ] })
+          .sort({ updatedAt: -1, reservedAt: -1, createdAt: -1 })
+          .limit(1)
+          .toArray()
+        if (alt && alt.length) collection = alt[0]
+      } catch (e) {
+        // ignore and continue
+      }
+    }
+
     if (!collection) return NextResponse.json({ message: 'Collection not found' }, { status: 404 })
 
     const ticketId = `tkt-${Date.now().toString()}-${collection.id || collection._id}`

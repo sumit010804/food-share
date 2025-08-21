@@ -1018,8 +1018,9 @@ export default function DonationHistoryPage() {
                                               if (belongsToMe) {
                                                 return (
                                                   <div className="ml-2">
+                                                    {/* Prefer listingId to avoid synthetic ids; fallback to id */}
                                                     {/* @ts-ignore */}
-                                                    <TicketQRButton collectionId={collection.id || collection.listingId} />
+                                                    <TicketQRButton collectionId={collection.listingId || collection.id} />
                                                   </div>
                                                 )
                                               }
