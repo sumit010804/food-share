@@ -23,7 +23,13 @@ export async function POST(request: NextRequest) {
     // the listing id as its own id (older docs might).
     if (!collection) {
       try {
-        const alt = await collections.find({ $or: [ { listingId: collectionId }, { id: collectionId } ] })
+        const maybeNum = !isNaN(Number(collectionId)) ? Number(collectionId) : null
+        const altFilters: any[] = [ { listingId: collectionId }, { id: collectionId } ]
+        if (maybeNum !== null) {
+          altFilters.push({ listingId: maybeNum })
+          altFilters.push({ id: maybeNum })
+        }
+        const alt = await collections.find({ $or: altFilters })
           .sort({ updatedAt: -1, reservedAt: -1, createdAt: -1 })
           .limit(1)
           .toArray()
