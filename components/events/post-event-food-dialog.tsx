@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -60,6 +60,15 @@ export function PostEventFoodDialog({
     safetyHours: "4",
     specialInstructions: "",
   })
+  const [currentUser, setCurrentUser] = useState<any>(null)
+
+  // Load current user from localStorage for client-side guard
+  useEffect(() => {
+    try {
+      const raw = typeof window !== 'undefined' ? localStorage.getItem('user') : null
+      if (raw) setCurrentUser(JSON.parse(raw))
+    } catch {}
+  }, [])
 
   const currentEvent = event || eventsNeedingAttention.find((e) => e.id === selectedEventId)
 
@@ -75,6 +84,11 @@ export function PostEventFoodDialog({
     setError("")
 
     try {
+      // client-side guard: only admin can log post-event food
+      if (!(currentUser && currentUser.userType === 'admin')) {
+        setError('You do not have permission to log post-event food.')
+        return
+      }
       // Create food listing
       const foodResponse = await fetch("/api/food-listings", {
         method: "POST",
@@ -121,9 +135,8 @@ export function PostEventFoodDialog({
           let actorEmail: string | null = null
           let actorId: string | null = null
           try {
-            const raw = localStorage.getItem('user')
-            if (raw) {
-              const u = JSON.parse(raw)
+            const u = currentUser
+            if (u) {
               actorEmail = u?.email || null
               actorId = u?.id || u?._id || null
             }
@@ -306,7 +319,7 @@ export function PostEventFoodDialog({
             <Button
               type="submit"
               className="flex-1 bg-cyan-800 hover:bg-cyan-900"
-              disabled={isLoading || (!event && !selectedEventId)}
+              disabled={isLoading || (!event && !selectedEventId) || !(currentUser && currentUser.userType === 'admin')}
             >
               {isLoading ? "Creating..." : "Log Surplus Food"}
             </Button>

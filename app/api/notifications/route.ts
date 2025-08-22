@@ -5,17 +5,41 @@ import { ObjectId } from "mongodb"
 import type { Notification } from "@/lib/types"
 
 export async function GET(request: NextRequest) {
+  const isDev = process.env.NODE_ENV !== "production"
   try {
-    const db = await getDatabase()
     const { searchParams } = new URL(request.url)
     const userId = searchParams.get("userId")
 
-    const query = userId ? { userId } : {}
-    const notifications = (await db
-      .collection<Notification>("notifications")
-      .find(query)
-      .sort({ createdAt: -1 })
-      .toArray()) as unknown as Notification[]
+    let db
+    try {
+      db = await getDatabase()
+    } catch (e) {
+      if (isDev) {
+        // In dev, avoid failing the dashboard due to transient DB issues; return empty list
+        return NextResponse.json({ message: "Notifications unavailable (dev)", notifications: [] }, { status: 200 })
+      }
+      throw e
+    }
+
+    const baseQuery: any = {}
+    if (userId) {
+      // Notifications store userId as a string; match on string form
+      baseQuery.userId = String(userId)
+    }
+
+    let notifications: Notification[] = []
+    try {
+      notifications = (await db
+        .collection<Notification>("notifications")
+        .find(baseQuery)
+        .sort({ createdAt: -1 })
+        .toArray()) as unknown as Notification[]
+    } catch (e) {
+      if (isDev) {
+        return NextResponse.json({ message: "Notifications unavailable (dev)", notifications: [] }, { status: 200 })
+      }
+      throw e
+    }
 
     return NextResponse.json({
       message: "Notifications retrieved successfully",

@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
         ].filter(Boolean)
       })
       const userType = requester?.userType || requester?.role || null
-      const allowed = userType && (userType === 'admin' || userType === 'event')
+  const allowed = userType && (userType === 'admin')
       if (!allowed) {
         return NextResponse.json({ message: 'You do not have permission to create events.' }, { status: 403 })
       }

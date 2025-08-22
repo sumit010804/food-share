@@ -88,13 +88,16 @@ export default function DonationHistoryPage() {
   const dedupeCollections = (items: any[]) => {
     const keyOf = (x: any) => {
       // Normalize across variants: collections.listingId (string), raw.listingId, raw.id, fallback to id
-      return (
+      // Allow multiple per listing when different reservationId exists
+      const base = (
         (x.listingId && String(x.listingId)) ||
         (x.raw?.listingId && String(x.raw.listingId)) ||
         (x.raw?.id && String(x.raw.id)) ||
         (x.id && String(x.id)) ||
         `${x.listingTitle || ''}-${x.collectedAt || x.reservedAt || ''}`
       )
+      const resId = x.reservationId || x.raw?.reservationId || null
+      return resId ? `${base}#${resId}` : base
     }
     const score = (x: any) => {
       // Prefer DB-backed entries (raw present) by adding a large bias
@@ -739,22 +742,23 @@ export default function DonationHistoryPage() {
           </Card>
         </div>
 
-        <Tabs value={canListFood ? activeTab : 'collections'} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className={`grid w-full ${canListFood ? 'grid-cols-2' : 'grid-cols-1'} bg-emerald-50 border border-emerald-200`}>
-            {canListFood && (
+        <Tabs value={canListFood ? 'donations' : 'collections'} onValueChange={setActiveTab} className="space-y-6">
+          <TabsList className={`grid w-full ${'grid-cols-1'} bg-emerald-50 border border-emerald-200`}>
+            {canListFood ? (
               <TabsTrigger
                 value="donations"
                 className="data-[state=active]:bg-emerald-600 data-[state=active]:text-white"
               >
                 Donations ({filteredDonations.length})
               </TabsTrigger>
+            ) : (
+              <TabsTrigger
+                value="collections"
+                className="data-[state=active]:bg-emerald-600 data-[state=active]:text-white"
+              >
+                Collection History ({filteredCollections.length})
+              </TabsTrigger>
             )}
-            <TabsTrigger
-              value="collections"
-              className="data-[state=active]:bg-emerald-600 data-[state=active]:text-white"
-            >
-              {canListFood ? 'Collections' : 'Collection History'} ({filteredCollections.length})
-            </TabsTrigger>
           </TabsList>
 
           {/* Filters */}
@@ -950,6 +954,7 @@ export default function DonationHistoryPage() {
             </Card>
           </TabsContent>
 
+          {!canListFood && (
           <TabsContent value="collections">
             <Card className="border-emerald-100 animate-fade-in delay-600">
               <CardHeader>
@@ -1102,6 +1107,7 @@ export default function DonationHistoryPage() {
               </CardContent>
             </Card>
           </TabsContent>
+          )}
         </Tabs>
       </div>
     </div>

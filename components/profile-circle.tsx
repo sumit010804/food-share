@@ -101,6 +101,8 @@ export function ProfileCircle({ user }: ProfileCircleProps) {
   useEffect(() => {
     const ping = async () => {
       try {
+        // Skip if browser reports offline to avoid noisy network errors in dev
+        if (typeof navigator !== 'undefined' && navigator && 'onLine' in navigator && !navigator.onLine) return
         const userData = localStorage.getItem("user")
         if (!userData) return
         const user = JSON.parse(userData)
@@ -108,14 +110,14 @@ export function ProfileCircle({ user }: ProfileCircleProps) {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ userId: user.id || user._id }),
-        })
+        }).catch(() => {}) // swallow errors; best-effort only
       } catch (err) {
         // non-fatal
       }
     }
 
     ping()
-    const interval = setInterval(ping, 60 * 1000) // every minute
+    const interval = setInterval(ping, 5 * 60 * 1000) // every 5 minutes
     return () => clearInterval(interval)
   }, [])
 

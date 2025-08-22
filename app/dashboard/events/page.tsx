@@ -181,7 +181,7 @@ export default function EventsPage() {
     return <div>Loading...</div>
   }
 
-  const canManageEvents = user && (user.userType === 'admin' || user.userType === 'event')
+  const canManageEvents = user && (user.userType === 'admin')
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-cyan-50 to-white">

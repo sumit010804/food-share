@@ -15,7 +15,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       if (body && body.actorId) orClauses.push({ id: body.actorId })
       const requester = await db.collection('users').findOne(orClauses.length > 0 ? { $or: orClauses } : { email: '__none__' })
       const userType = requester?.userType || requester?.role || null
-      const allowed = userType && (userType === 'admin' || userType === 'event')
+  const allowed = userType && (userType === 'admin')
       if (!allowed) {
         return NextResponse.json({ message: 'You do not have permission to perform this action.' }, { status: 403 })
       }

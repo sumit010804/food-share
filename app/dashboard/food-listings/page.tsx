@@ -47,6 +47,7 @@ interface FoodListing {
   qrCode?: boolean
   collectedBy?: string
   collectedAt?: string
+  remainingQuantity?: number
 }
 
 export default function FoodListingsPage() {
@@ -102,13 +103,33 @@ export default function FoodListingsPage() {
         return
       }
 
-      // optimistically update UI
-      setListings((prev) => prev.map(l => l.id === listing.id ? { ...l, status: 'reserved' } : l))
+      // Ask for quantity to reserve
+      const maxRemaining = typeof (listing as any).remainingQuantity === 'number' && isFinite((listing as any).remainingQuantity)
+        ? Number((listing as any).remainingQuantity)
+        : (() => {
+            // try to parse from quantity string
+            const s = String((listing as any).quantity || '').trim()
+            const m = s.match(/([0-9]+(?:\.[0-9]+)?)/)
+            return m ? Math.floor(Number(m[1])) : 0
+          })()
+      if (!maxRemaining || maxRemaining <= 0) {
+        alert('No quantity remaining to reserve.')
+        return
+      }
+
+      let input = prompt(`Enter quantity to reserve (1 - ${maxRemaining})`, Math.min(1, maxRemaining).toString())
+      if (input === null) return
+      let qty = Math.floor(Number(input))
+      if (!qty || qty < 1) qty = 1
+      if (qty > maxRemaining) qty = maxRemaining
+
+      // optimistically update UI remaining
+      setListings((prev) => prev.map(l => l.id === listing.id ? { ...l, remainingQuantity: Math.max(0, (l as any).remainingQuantity ? Number((l as any).remainingQuantity) - qty : (maxRemaining - qty)), status: (maxRemaining - qty) <= 0 ? 'reserved' : 'available' } : l))
 
       const res = await fetch('/api/food-listings/reserve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ listingId: listing.id, userId: user?.id, userName: user?.name, userEmail: user?.email })
+  body: JSON.stringify({ listingId: listing.id, userId: user?.id, userName: user?.name, userEmail: user?.email, quantity: qty })
       })
 
       if (!res.ok) {
@@ -138,8 +159,8 @@ export default function FoodListingsPage() {
           alert(`Reserve failed: ${res.status} ${res.statusText}${textBody ? ` - ${textBody}` : ''}`)
         }
 
-        // rollback optimistic update
-        fetchListings()
+  // rollback optimistic update to canonical state
+  fetchListings()
         return
       }
 
@@ -503,6 +524,11 @@ export default function FoodListingsPage() {
                   <Badge variant="secondary" className="text-xs font-medium">
                     {listing.quantity}
                   </Badge>
+                    {typeof (listing as any).remainingQuantity === 'number' && (
+                      <Badge variant="outline" className="text-xs">
+                        Remaining: {(listing as any).remainingQuantity}
+                      </Badge>
+                    )}
                   {(Array.isArray(listing.tags) ? listing.tags : []).slice(0, 2).map((tag, index) => (
                     <Badge key={index} variant="outline" className="text-xs">
                       {tag}
@@ -516,7 +542,7 @@ export default function FoodListingsPage() {
                 </div>
 
                 <div className="flex flex-col sm:flex-row gap-2 mt-6">
-                  {listing.status === "available" && String((listing as any).createdByEmail || '') !== String(user?.email || '') && (
+                  {listing.status === "available" && !canListFood && String((listing as any).createdByEmail || '') !== String(user?.email || '') && (
                     <Button
                       size="sm"
                       className="flex-1 gradient-primary text-white hover-lift shadow-lg hover:shadow-emerald-200 h-10 font-medium"
@@ -608,6 +634,12 @@ export default function FoodListingsPage() {
                       <p className="text-xs text-slate-500">Quantity</p>
                       <p className="font-medium">{selectedListing.quantity}{selectedListing.unit ? ` ${selectedListing.unit}` : ''}</p>
                     </div>
+                    {typeof (selectedListing as any).remainingQuantity === 'number' && (
+                      <div>
+                        <p className="text-xs text-slate-500">Remaining</p>
+                        <p className="font-medium">{(selectedListing as any).remainingQuantity}</p>
+                      </div>
+                    )}
                     <div>
                       <p className="text-xs text-slate-500">Location</p>
                       <p className="font-medium">{selectedListing.location}</p>

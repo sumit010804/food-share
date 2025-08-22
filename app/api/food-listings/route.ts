@@ -10,10 +10,12 @@ export async function GET() {
   try {
     const db = await getDatabase();
     const now = new Date();
-    // Fetch listings that are still active for discovery (available or reserved)
+    // Fetch listings that are still active for discovery:
+    // - status available or reserved
+    // - OR have remainingQuantity > 0 (safeguard for partial collections)
     const candidateListings = await db
       .collection("foodListings")
-      .find({ status: { $in: ["available", "reserved"] } })
+      .find({ $or: [ { status: { $in: ["available", "reserved"] } }, { remainingQuantity: { $gt: 0 } } ] })
       .toArray();
 
     const updatedListings: any[] = []
@@ -37,6 +39,10 @@ export async function GET() {
       }
 
       // listing is still valid
+      // If there's remaining quantity, ensure downstream consumers treat it as available
+      if (typeof l.remainingQuantity === 'number' && l.remainingQuantity > 0) {
+        l.status = 'available'
+      }
       updatedListings.push(l)
     }
 
@@ -70,7 +76,7 @@ export async function GET() {
         availableFrom: l.availableFrom || null,
         availableUntil: l.availableUntil || null,
         expiresAt: l.expiresAt || null,
-        status: l.status,
+  status: l.status,
         safeToEatHours: l.safeToEatHours || l.safetyHours || l.safeToEatHours,
         tags: l.qualityTags || l.tags || l.dietaryInfo || [],
         allergens: l.allergens || [],
@@ -92,6 +98,8 @@ export async function GET() {
         images: l.images || [],
         specialInstructions: l.specialInstructions || null,
         statusHistory: l.statusHistory || null,
+  remainingQuantity: typeof l.remainingQuantity === 'number' ? l.remainingQuantity : undefined,
+  reservations: Array.isArray(l.reservations) ? l.reservations : undefined,
         collectedBy: l.collectedBy || l.pickedUpBy || null,
         collectedAt: l.collectedAt || l.pickedUpAt || null,
         createdAt: l.createdAt || l._createdAt || null,
@@ -190,7 +198,12 @@ export async function POST(request: NextRequest) {
     // schedule pending notifications for other users so they'll receive them
     // if they log in before the listing expires.
     try {
-      const users = await db.collection("users").find({}).toArray();
+      const allUsers = await db.collection("users").find({}).toArray();
+      // Only notify Student, NGO, and Admin users
+      const users = allUsers.filter((u: any) => {
+        const role = String(u.userType || u.role || '').toLowerCase()
+        return role === 'student' || role === 'ngo' || role === 'admin'
+      })
       const emailById = new Map<string, string | undefined>(
         users.map((u: any) => [u._id?.toString() || u.id, u.email])
       )
@@ -204,7 +217,7 @@ export async function POST(request: NextRequest) {
 
       const expiresAt = newListing.availableUntil || null
 
-      users.forEach((u: any, idx: number) => {
+  users.forEach((u: any, idx: number) => {
         const uid = u._id?.toString() || u.id
         const uEmail = u.email || null
         // don't notify the lister (by id or by email)
@@ -234,7 +247,7 @@ export async function POST(request: NextRequest) {
         // to be delivered on next login if the listing hasn't expired.
         const lastActive = u.lastActive ? new Date(u.lastActive).getTime() : 0
         const now = Date.now()
-        if (lastActive && now - lastActive <= ACTIVE_WINDOW_MS) {
+  if (lastActive && now - lastActive <= ACTIVE_WINDOW_MS) {
           immediateDocs.push(recipient)
         } else {
           // schedule pending notification tied to the listing expiry
@@ -261,7 +274,7 @@ export async function POST(request: NextRequest) {
         await db.collection("pending_notifications").insertMany(pendingDocs)
       }
 
-      // Email ALL users with a valid email (excluding the lister), regardless of lastActive.
+  // Email only Student, NGO, and Admin users with a valid email (excluding the lister), regardless of lastActive.
       try {
         const title = `New food listed: ${newListing.title}`
         const message = `${newListing.donorName} listed "${newListing.title}" — check it out!`

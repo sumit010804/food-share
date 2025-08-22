@@ -31,3 +31,10 @@ next-env.d.ts
 # playwright / e2e artifacts
 playwright-report/
 test-results/
+
+# local mongodb data and logs
+data/db/
+data/*.log*
+data/mongod.log*
+data/**/WiredTiger*
+data/**/journal/

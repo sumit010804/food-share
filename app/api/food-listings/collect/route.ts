@@ -4,9 +4,23 @@ import type { CollectionRecord, DonationRecord } from "@/lib/types"
 import { updateAnalyticsForDonation } from '@/lib/analytics'
 import { ObjectId } from 'mongodb'
 
+// Parse numeric quantity helper (same semantics as in reserve)
+const parseNumericQty = (q: any): number => {
+  if (q === null || q === undefined) return 0
+  if (typeof q === 'number') return isFinite(q) ? q : 0
+  const s = String(q).trim().toLowerCase()
+  const mNum = s.match(/^[0-9]+(?:\.[0-9]+)?$/)
+  if (mNum) return Number(mNum[0])
+  const m = s.match(/([0-9]+(?:\.[0-9]+)?)\s*(kg|kgs|kilograms?|pcs?|pieces?|servings?)?$/)
+  if (m) return Number(m[1])
+  const any = s.match(/([0-9]+(?:\.[0-9]+)?)/)
+  if (any) return Number(any[1])
+  return 0
+}
+
 export async function POST(request: NextRequest) {
   try {
-  const { listingId, collectedBy, collectedAt, collectionMethod = "qr_scan" } = await request.json()
+  const { listingId, collectionId, collectedBy, collectedAt, collectionMethod = "qr_scan" } = await request.json()
 
   const db = await getDatabase()
   const collectionsCol = db.collection('collections')
@@ -29,8 +43,19 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // find collection either by listingId field or by id
-  let existing = await collectionsCol.findOne({ $or: matchFilters })
+  // find collection either by provided collectionId or by listingId
+  let existing = null as any
+  if (collectionId) {
+    const cIdStr = String(collectionId)
+    const cFilters: any[] = [{ id: cIdStr }]
+    if (/^[0-9a-fA-F]{24}$/.test(cIdStr)) {
+      try { const coid = new ObjectId(cIdStr); cFilters.push({ _id: coid }) } catch {}
+    }
+    existing = await collectionsCol.findOne({ $or: cFilters })
+  }
+  if (!existing) {
+    existing = await collectionsCol.findOne({ $or: matchFilters })
+  }
 
       // If no collection doc exists yet, try to find the reserved food listing and create a collection from it
       if (!existing) {
@@ -88,17 +113,32 @@ export async function POST(request: NextRequest) {
         { $set: { status: 'collected', collectedAt, collectedBy, collectionMethod, updatedAt: new Date() } }
       )
 
-      // Update corresponding food listing status to collected
+      // Update corresponding food listing remainingQuantity and status
       const lidStr = String(existing.listingId || listingId)
       const listingQueries2: any[] = [{ id: lidStr }]
       if (/^[0-9a-fA-F]{24}$/.test(lidStr)) {
         try { listingQueries2.push({ _id: new ObjectId(lidStr) }) } catch (e) { /* ignore */ }
       }
-
-      await foodListingsCol.updateOne({ $or: listingQueries2 }, { $set: { status: 'collected', collectedAt: new Date(), collectedBy } })
+      const listingDoc = await foodListingsCol.findOne({ $or: listingQueries2 })
+      if (listingDoc) {
+        const totalQty = parseNumericQty(listingDoc.quantity)
+        const prevRemaining = typeof listingDoc.remainingQuantity === 'number' ? Number(listingDoc.remainingQuantity) : Math.max(0, totalQty)
+        const collQty = parseNumericQty(existing.quantity)
+        const newRemaining = Math.max(0, prevRemaining - collQty)
+        const setUpdate: any = { remainingQuantity: newRemaining, updatedAt: new Date() }
+        if (newRemaining === 0) {
+          setUpdate.status = 'collected'
+          setUpdate.collectedAt = new Date()
+          setUpdate.collectedBy = collectedBy
+        } else {
+          // Keep the listing discoverable for remaining portions
+          setUpdate.status = 'available'
+        }
+        await foodListingsCol.updateOne({ _id: listingDoc._id }, { $set: setUpdate })
+      }
 
       // Determine weight/quantity for the donation. Prefer explicit fields if present.
-      const candidates = [existing.quantity, existing.weight, existing.raw?.quantity, existing.listingQuantity, existing.listingQty]
+  const candidates = [existing.quantity, existing.weight, existing.raw?.quantity, existing.listingQuantity, existing.listingQty]
       let foodKg = 0
       // Try to parse numeric values if present (very small heuristic parser)
       for (const c of candidates) {

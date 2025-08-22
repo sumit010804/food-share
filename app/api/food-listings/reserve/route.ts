@@ -5,14 +5,45 @@ import fs from 'fs'
 import { generateTicketToken } from '@/lib/qr-ticket'
 import { updateAnalyticsForDonation } from '@/lib/analytics'
 
+// Very small helper to parse a numeric quantity from a variety of inputs
+const parseNumericQty = (q: any): number => {
+  if (q === null || q === undefined) return 0
+  if (typeof q === 'number') return isFinite(q) ? q : 0
+  const s = String(q).trim().toLowerCase()
+  // match plain number
+  const mNum = s.match(/^[0-9]+(?:\.[0-9]+)?$/)
+  if (mNum) return Number(mNum[0])
+  // match like "12 kg", "12kgs", "12 pieces", "12 pcs"
+  const m = s.match(/([0-9]+(?:\.[0-9]+)?)\s*(kg|kgs|kilograms?|pcs?|pieces?|servings?)?$/)
+  if (m) return Number(m[1])
+  // fallback: first number anywhere
+  const any = s.match(/([0-9]+(?:\.[0-9]+)?)/)
+  if (any) return Number(any[1])
+  return 0
+}
+
 export async function POST(request: NextRequest) {
   try {
     const db = await getDatabase()
     const body = await request.json()
-  const { listingId, userId, userName, userEmail } = body
+  const { listingId, userId, userName, userEmail, quantity } = body
 
     if (!listingId || !userId) {
       return NextResponse.json({ message: "Missing listingId or userId" }, { status: 400 })
+    }
+
+    // Enforce role-based reservation rule: lister roles cannot reserve (canteen/hostel/admin)
+    try {
+      const orClauses: any[] = []
+      if (userEmail) orClauses.push({ email: userEmail })
+      if (userId) orClauses.push({ id: userId })
+      const requester = await db.collection('users').findOne(orClauses.length > 0 ? { $or: orClauses } : { email: '__none__' })
+      const role = requester?.userType || requester?.role || null
+      if (role === 'canteen' || role === 'hostel' || role === 'admin') {
+        return NextResponse.json({ message: 'Lister accounts (canteen/hostel/admin) cannot reserve items.' }, { status: 403 })
+      }
+    } catch (e) {
+      // If we cannot determine the role, proceed; other checks still apply
     }
 
     // Build a query that matches either custom `id` or Mongo _id
@@ -37,35 +68,55 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: "Owner cannot reserve their own listing" }, { status: 403 })
     }
 
-    // Atomically mark as reserved only if still available (use _id)
+    // Partial reservation handling
     const now = new Date()
-    const update: any = {
+    const totalQty = parseNumericQty(existing.quantity)
+    const currentRemaining = typeof existing.remainingQuantity === 'number' && isFinite(existing.remainingQuantity)
+      ? Number(existing.remainingQuantity)
+      : totalQty
+    const reqQty = Math.max(1, Math.floor(Number(quantity || 0)))
+    if (!reqQty || reqQty <= 0) {
+      return NextResponse.json({ message: "Invalid quantity requested" }, { status: 400 })
+    }
+    if (currentRemaining <= 0) {
+      return NextResponse.json({ message: "No quantity remaining to reserve" }, { status: 409 })
+    }
+    if (reqQty > currentRemaining) {
+      return NextResponse.json({ message: `Only ${currentRemaining} remaining`, remaining: currentRemaining }, { status: 409 })
+    }
+
+    const newRemaining = currentRemaining - reqQty
+    const reservationId = `res-${Date.now().toString()}-${existing.id || existing._id}`
+
+    // Update listing: set remaining, append reservations array entry, and status if fully reserved
+    const listingUpdate: any = {
       $set: {
-        status: "reserved",
-        reservedBy: userId,
-        reservedByName: userName || null,
-        reservedByEmail: userEmail || null,
-        reservedAt: now,
+        remainingQuantity: newRemaining,
         updatedAt: now,
       },
       $push: {
-        statusHistory: { status: "reserved", at: now, by: userId }
-      }
+        reservations: {
+          id: reservationId,
+          qty: reqQty,
+          by: userId,
+          byName: userName || null,
+          byEmail: userEmail || null,
+          status: 'reserved',
+          at: now,
+        },
+        statusHistory: { status: "reserved_part", at: now, by: userId, qty: reqQty },
+      },
     }
-    const result = await db.collection("foodListings").findOneAndUpdate({ _id: existing._id, status: "available" }, update, { returnDocument: "after" })
-    let updatedListing: any = null
-    if (!result || !result.value) {
-      // either not found or not available anymore; fetch current doc to inspect status
-      const current = await db.collection("foodListings").findOne({ _id: existing._id })
-      // If the listing is now reserved by the same user who requested it, allow creation
-      if (current && (current.reservedBy === userId || String(current.reservedBy) === String(userId))) {
-        updatedListing = current
-      } else {
-        return NextResponse.json({ message: "Listing not available to reserve", currentStatus: current?.status || null, reservedBy: current?.reservedBy || null, reservedByEmail: current?.reservedByEmail || null }, { status: 409 })
-      }
+    if (newRemaining === 0) {
+      listingUpdate.$set.status = 'reserved'
+      listingUpdate.$set.reservedAt = now
     } else {
-      updatedListing = result.value
+      // Keep status available while there is remaining quantity
+      if (existing.status !== 'available') listingUpdate.$set.status = 'available'
     }
+
+    const result = await db.collection("foodListings").findOneAndUpdate({ _id: existing._id }, listingUpdate, { returnDocument: "after" })
+    const updatedListing: any = result?.value || (await db.collection("foodListings").findOne({ _id: existing._id }))
 
     // Notify the lister (if any)
     try {
@@ -93,7 +144,8 @@ export async function POST(request: NextRequest) {
       const collectionsCol = db.collection('collections')
       const listingIdStr = updatedListing.id || (updatedListing._id && String(updatedListing._id))
       collectionDoc = {
-        id: `col-${Date.now().toString()}-${listingIdStr}`,
+        id: `col-${Date.now().toString()}-${reservationId}`,
+        reservationId,
         listingId: listingIdStr,
         listingTitle: updatedListing.title,
         donatedBy: updatedListing.donorName || updatedListing.providerName || null,
@@ -102,81 +154,17 @@ export async function POST(request: NextRequest) {
         recipientEmail: userEmail || null,
         recipientName: userName || null,
         reservedAt: now,
-        quantity: updatedListing.quantity || null,
+        status: 'reserved',
+        quantity: String(reqQty),
         location: updatedListing.location || null,
         foodType: updatedListing.foodType || null,
-  createdAt: now,
+        createdAt: now,
+        updatedAt: now,
       }
-
-      // Build a tolerant filter so we match existing collections saved with different id shapes
-      // Only match by listingId (string or ObjectId). Do not match by `id` field because that is the
-      // collection document id (e.g., col-...) and not the listing id.
-      const matchFilters: any[] = [ { listingId: listingIdStr } ]
-      if (/^[0-9a-fA-F]{24}$/.test(listingIdStr)) {
-        try {
-          const oid = new ObjectId(listingIdStr)
-          matchFilters.push({ listingId: oid })
-          // legacy: some very old docs may have used listingId as _id
-          matchFilters.push({ _id: oid })
-        } catch (e) {
-          // ignore invalid ObjectId conversion
-        }
-      }
-
-      // Try a single upsert that matches either string id or ObjectId forms. Handle driver return shapes.
-      const upsertRes = await collectionsCol.findOneAndUpdate(
-        { $or: matchFilters },
-        { $setOnInsert: collectionDoc, $set: { updatedAt: now, status: 'reserved' } },
-        { upsert: true, returnDocument: 'after' }
-      )
-
-  // (removed debug file logging)
-
-      if (upsertRes && upsertRes.value) {
-        createdCollection = upsertRes.value
-      } else {
-        try { console.error('reserve: upsertRes missing value', { upsertRes: (upsertRes as any) }) } catch(e){}
-        // Debug: upsert returned no value (driver may not return doc). Log minimal info for investigation.
-        try {
-          console.error('reserve: upsert returned without value', { upserted: (upsertRes as any)?.lastErrorObject })
-        } catch (e) { /* ignore logging errors */ }
-        // Some Mongo drivers return lastErrorObject.upsertedId when upsert occurs but value is not returned.
-        try {
-          // Attempt to grab upserted id from result (defensive)
-          const upsertedId = (upsertRes as any)?.lastErrorObject?.upserted?.[0]?._id || (upsertRes as any)?.lastErrorObject?.upsertedId
-          if (upsertedId) {
-            createdCollection = await collectionsCol.findOne({ _id: upsertedId })
-          }
-        } catch (e) {
-          // ignore
-        }
-
-        // Final fallback: try a direct fetch by listingId (string/ObjectId). If missing, insert once.
-        if (!createdCollection) {
-          const fetched = await collectionsCol.findOne({ $or: matchFilters })
-          if (fetched) {
-            createdCollection = fetched
-          } else {
-            try {
-              const ins = await collectionsCol.insertOne(collectionDoc)
-              createdCollection = await collectionsCol.findOne({ _id: ins.insertedId })
-            } catch (insErr) {
-              console.error('collections insert fallback failed', insErr)
-              // As a last resort try a fetch again - may have been inserted by race
-              const finalFetch = await collectionsCol.findOne({ $or: matchFilters })
-              try { console.error('reserve: finalFetch after insert failure', { finalFetch }) } catch(e){}
-              try {
-                const total = await collectionsCol.countDocuments()
-                const samples = await collectionsCol.find({}).limit(5).toArray()
-                console.error('reserve: collections stats after failure', { total, samplesCount: samples.length })
-              } catch(e) { console.error('reserve: failed to fetch collections stats after failure', e) }
-              if (finalFetch) createdCollection = finalFetch
-            }
-          }
-        }
-      }
+      const ins = await collectionsCol.insertOne(collectionDoc)
+      createdCollection = { ...collectionDoc, _id: ins.insertedId }
     } catch (e) {
-      console.error('Failed to ensure collection placeholder for reservation in DB', e)
+      console.error('Failed to create collection record for reservation', e)
     }
 
     // Normalize collection shape for client

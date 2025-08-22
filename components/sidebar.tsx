@@ -148,8 +148,6 @@ export function Sidebar({ className }: SidebarProps) {
               .filter((item) => {
                 const role = user?.userType || user?.role
                 const isStudentOrNgo = role === 'student' || role === 'ngo'
-                // Hide Events for all roles except admin/event organizer
-                if (item.href === '/dashboard/events' && role !== 'admin' && role !== 'event') return false
                 // Additionally, hide Scan QR and List Food create for Student/NGO
                 if (isStudentOrNgo) {
                   if (item.href === '/scan') return false

@@ -95,8 +95,8 @@ export function CreateEventDialog({ open, onOpenChange, onEventCreated, user }: 
     setError("")
 
     try {
-    // client-side guard: only admin/event organizer can create events
-    if (!(user && (user.userType === 'admin' || user.userType === 'event'))) {
+  // client-side guard: only admin can create events
+  if (!(user && (user.userType === 'admin'))) {
       setError('You do not have permission to create events.')
       return
     }
@@ -290,7 +290,7 @@ export function CreateEventDialog({ open, onOpenChange, onEventCreated, user }: 
           </div>
 
           <div className="flex gap-4 pt-4">
-            <Button type="submit" className="flex-1 bg-cyan-800 hover:bg-cyan-900" disabled={isLoading || !(user && (user.userType === 'admin' || user.userType === 'event'))}>
+            <Button type="submit" className="flex-1 bg-cyan-800 hover:bg-cyan-900" disabled={isLoading || !(user && (user.userType === 'admin'))}>
               {isLoading ? "Creating..." : "Create Event"}
             </Button>
             <Button
