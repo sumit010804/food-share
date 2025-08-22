@@ -54,7 +54,7 @@
     "googleapis": "^156.0.0",
     "input-otp": "1.4.1",
     "jsonwebtoken": "latest",
-    "jsqr": "^1.4.0",
+  "jsqr": "^1.4.0",
     "kerberos": "latest",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.454.0",

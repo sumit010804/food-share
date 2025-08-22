@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { QrCode, Camera, X, Package, MapPin, Clock, User, Building, CheckCircle } from "lucide-react"
 import { parseQRCodeData, type QRCodeData } from "@/lib/qr-generator"
+import jsQR from "jsqr"
 
 interface QRScannerProps {
   onScan?: (data: QRCodeData) => void
@@ -23,6 +24,8 @@ export function QRScanner({ onScan }: QRScannerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  const scanningRef = useRef(false)
+  const lastDecodedAtRef = useRef<number>(0)
 
   const startCamera = async () => {
     try {
@@ -34,10 +37,10 @@ export function QRScanner({ onScan }: QRScannerProps) {
       if (videoRef.current) {
         videoRef.current.srcObject = stream
         streamRef.current = stream
-        setIsScanning(true)
-
-        // Start scanning for QR codes
-        scanForQRCode()
+  setIsScanning(true)
+  scanningRef.current = true
+  // Start scanning for QR codes
+  scanForQRCode()
       }
     } catch (err) {
       setError("Unable to access camera. Please check permissions.")
@@ -51,17 +54,42 @@ export function QRScanner({ onScan }: QRScannerProps) {
       streamRef.current = null
     }
     setIsScanning(false)
+    scanningRef.current = false
+  }
+
+  const handleDecodedText = async (text: string) => {
+    // Debounce repeated detections
+    const now = Date.now()
+    if (now - lastDecodedAtRef.current < 1200) return
+    lastDecodedAtRef.current = now
+
+    // Heuristic: if it looks like our ticket token (base64.sig), validate via API
+    if (text.includes(".") && !text.includes("\n")) {
+      await handleTokenScan(text)
+      return
+    }
+    // Otherwise try legacy JSON payload
+    const data = parseQRCodeData(text)
+    if (data) {
+      setScannedData(data)
+      setError("")
+      stopCamera()
+      onScan?.(data)
+      return
+    }
+    // Not recognized
+    setError("QR not recognized. Try again.")
   }
 
   const scanForQRCode = () => {
-    if (!videoRef.current || !canvasRef.current || !isScanning) return
+    if (!videoRef.current || !canvasRef.current || !isScanning || !scanningRef.current) return
 
     const video = videoRef.current
     const canvas = canvasRef.current
     const ctx = canvas.getContext("2d")
 
     if (!ctx || video.readyState !== video.HAVE_ENOUGH_DATA) {
-      setTimeout(scanForQRCode, 100)
+      if (scanningRef.current) setTimeout(scanForQRCode, 120)
       return
     }
 
@@ -70,14 +98,18 @@ export function QRScanner({ onScan }: QRScannerProps) {
     ctx.drawImage(video, 0, 0)
 
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
-
-    // Simple QR code detection simulation
-    // In a real app, you'd use a library like jsQR
-    setTimeout(() => {
-      if (isScanning) {
-        scanForQRCode()
+    try {
+      const code = jsQR(imageData.data, imageData.width, imageData.height)
+      if (code && code.data) {
+        handleDecodedText(code.data)
       }
-    }, 100)
+    } catch (e) {
+      // ignore decode errors; continue scanning
+    }
+
+    if (scanningRef.current) {
+      requestAnimationFrame(scanForQRCode)
+    }
   }
 
   const handleManualInput = (input: string) => {
@@ -124,6 +156,36 @@ export function QRScanner({ onScan }: QRScannerProps) {
       }
     } catch (error) {
       setError("An error occurred while collecting")
+    } finally {
+      setIsCollecting(false)
+    }
+  }
+
+  const handleTokenScan = async (token: string) => {
+    setIsCollecting(true)
+    try {
+      const user = JSON.parse(localStorage.getItem("user") || "{}")
+      const body: any = { token, scannerId: user.id || user.name || null }
+      const res = await fetch("/api/tickets/scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+      if (res.ok) {
+        setCollected(true)
+        stopCamera()
+        // Auto-close after 2 seconds
+        setTimeout(() => {
+          setIsOpen(false)
+          setCollected(false)
+          setScannedData(null)
+        }, 2000)
+      } else {
+        const t = await res.json().catch(() => null)
+        setError(t?.message || "Invalid or used/expired ticket")
+      }
+    } catch (e) {
+      setError("Scan failed. Please try again.")
     } finally {
       setIsCollecting(false)
     }
