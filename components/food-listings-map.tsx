@@ -54,15 +54,40 @@ export default function FoodListingsMap({ listings }: { listings: Listing[] }) {
         map.setView([20.5937, 78.9629], 4)
       }
 
-      // Add markers
+      // Helper: color by status
+      const getPinColor = (status?: string) => {
+        switch ((status || '').toLowerCase()) {
+          case 'available':
+            return '#10b981' // emerald-500
+          case 'reserved':
+            return '#f59e0b' // amber-500
+          case 'collected':
+            return '#64748b' // slate-500
+          case 'expired':
+            return '#ef4444' // red-500
+          default:
+            return '#3b82f6' // blue-500
+        }
+      }
+
+      // Add markers with custom SVG pin icons
       points.forEach((l) => {
-        const marker = (L as any).circleMarker([l.lat!, l.lng!], {
-          radius: 8,
-          color: "#059669",
-          fillColor: "#34d399",
-          fillOpacity: 0.9,
-          weight: 2,
+        const color = getPinColor(l.status)
+        const pinSvg = `
+          <svg width="28" height="40" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 2C8.686 2 6 4.686 6 8c0 5.25 6 12 6 12s6-6.75 6-12c0-3.314-2.686-6-6-6z" fill="${color}" stroke="#0f172a" stroke-opacity="0.25" stroke-width="1"/>
+            <circle cx="12" cy="8.5" r="2.5" fill="white" fill-opacity="0.9"/>
+          </svg>
+        `
+        const icon = (L as any).divIcon({
+          className: 'fs-pin',
+          html: pinSvg,
+          iconSize: [28, 40],
+          iconAnchor: [14, 36], // bottom center
+          popupAnchor: [0, -28],
         })
+
+        const marker = (L as any).marker([l.lat!, l.lng!], { icon })
         const popup = `
           <div style="max-width:240px">
             <div style="font-weight:700;margin-bottom:4px">${l.title}</div>

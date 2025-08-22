@@ -1,10 +1,40 @@
+"use client"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import Leaf from "@/components/leaf-custom"
 import { Users, ArrowRight, Sparkles, Heart, MapPin, Phone, Mail, Globe } from "lucide-react"
+import { useEffect, useState } from "react"
 
 export default function HomePage() {
+  const [meals, setMeals] = useState<number | null>(null)
+  const [waste, setWaste] = useState<number | null>(null)
+  const [activeUsers, setActiveUsers] = useState<number | null>(null)
+  const [loadingStats, setLoadingStats] = useState<boolean>(false)
+
+  useEffect(() => {
+    let mounted = true
+    const load = async () => {
+      try {
+        setLoadingStats(true)
+        const res = await fetch('/api/home-stats', { cache: 'no-store' })
+        const js = await res.json().catch(() => ({}))
+        if (!mounted) return
+        const s = js?.stats || {}
+        setMeals(typeof s.mealsRedistributed === 'number' ? s.mealsRedistributed : null)
+        setWaste(typeof s.wasteReductionPercent === 'number' ? s.wasteReductionPercent : null)
+        setActiveUsers(typeof s.activeUsers === 'number' ? s.activeUsers : null)
+      } catch {
+        if (!mounted) return
+        setMeals(null); setWaste(null); setActiveUsers(null)
+      } finally {
+        if (mounted) setLoadingStats(false)
+      }
+    }
+    load()
+    const id = setInterval(load, 30000)
+    return () => { mounted = false; clearInterval(id) }
+  }, [])
   return (
     <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-emerald-50/30 overflow-hidden">
       {/* Header */}
@@ -232,22 +262,22 @@ export default function HomePage() {
 
           <div className="grid md:grid-cols-3 gap-8 mb-16">
             <div className="bg-white/80 backdrop-blur-sm p-10 rounded-3xl shadow-xl hover:shadow-2xl transition-all duration-300 hover-lift border border-emerald-100 animate-scale-in">
-              <div className="text-5xl font-serif font-black gradient-primary bg-clip-text text-transparent mb-4">
-                2,500+
+              <div className="text-5xl font-serif font-black gradient-primary bg-clip-text text-transparent mb-2">
+                {loadingStats && meals === null ? '…' : (meals ?? 0).toLocaleString()}
               </div>
               <div className="text-slate-600 text-lg font-medium">Meals Redistributed</div>
               <Heart className="w-6 h-6 text-emerald-500 mx-auto mt-4" />
             </div>
             <div className="bg-white/80 backdrop-blur-sm p-10 rounded-3xl shadow-xl hover:shadow-2xl transition-all duration-300 hover-lift border border-emerald-100 animate-scale-in delay-100">
-              <div className="text-5xl font-serif font-black gradient-primary bg-clip-text text-transparent mb-4">
-                85%
+              <div className="text-5xl font-serif font-black gradient-primary bg-clip-text text-transparent mb-2">
+                {loadingStats && waste === null ? '…' : `${Math.round(waste ?? 0)}%`}
               </div>
               <div className="text-slate-600 text-lg font-medium">Waste Reduction</div>
               <Leaf className="w-6 h-6 text-emerald-500 mx-auto mt-4" />
             </div>
             <div className="bg-white/80 backdrop-blur-sm p-10 rounded-3xl shadow-xl hover:shadow-2xl transition-all duration-300 hover-lift border border-emerald-100 animate-scale-in delay-200">
-              <div className="text-5xl font-serif font-black gradient-primary bg-clip-text text-transparent mb-4">
-                1,200+
+              <div className="text-5xl font-serif font-black gradient-primary bg-clip-text text-transparent mb-2">
+                {loadingStats && activeUsers === null ? '…' : (activeUsers ?? 0).toLocaleString()}
               </div>
               <div className="text-slate-600 text-lg font-medium">Active Users</div>
               <Users className="w-6 h-6 text-emerald-500 mx-auto mt-4" />
