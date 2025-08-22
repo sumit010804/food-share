@@ -5,6 +5,7 @@ import { ObjectId } from "mongodb"
 // QR for pickup is now generated only when a reservation is made (tickets),
 // not at listing creation time.
 import type { FoodListing } from "@/lib/types"
+import { sendNotificationEmail } from "@/lib/email"
 export async function GET() {
   try {
     const db = await getDatabase();
@@ -172,6 +173,9 @@ export async function POST(request: NextRequest) {
     // if they log in before the listing expires.
     try {
       const users = await db.collection("users").find({}).toArray();
+      const emailById = new Map<string, string | undefined>(
+        users.map((u: any) => [u._id?.toString() || u.id, u.email])
+      )
       const createdAt = new Date().toISOString();
       const baseId = Date.now().toString();
 
@@ -188,8 +192,8 @@ export async function POST(request: NextRequest) {
         // don't notify the lister (by id or by email)
         if ((newListing.donorId && uid === newListing.donorId) || (newListing.createdByEmail && uEmail && String(uEmail) === String(newListing.createdByEmail))) return
 
-        const title = `New food listed: ${newListing.title}`
-        const message = `${newListing.donorName} listed "${newListing.title}" — check it out!`
+  const title = `New food listed: ${newListing.title}`
+  const message = `${newListing.donorName} listed "${newListing.title}" — check it out!`
 
         const recipient = {
           id: `${baseId}-${uid}-${idx}`,
@@ -237,6 +241,29 @@ export async function POST(request: NextRequest) {
       }
       if (pendingDocs.length > 0) {
         await db.collection("pending_notifications").insertMany(pendingDocs)
+      }
+
+      // NEW: Email ALL users with a valid email (excluding the lister), regardless of lastActive.
+      try {
+        const title = `New food listed: ${newListing.title}`
+        const message = `${newListing.donorName} listed "${newListing.title}" — check it out!`
+
+        await Promise.all(
+          users.map(async (u: any) => {
+            const uid = u._id?.toString() || u.id
+            const to = u.email as string | undefined
+            if (!to) return
+            // Skip the lister by id or by email
+            if ((newListing.donorId && uid === newListing.donorId) || (newListing.createdByEmail && to && String(to) === String(newListing.createdByEmail))) return
+            try {
+              await sendNotificationEmail(to, title, message, "https://foodshare-black.vercel.app/dashboard/food-listings")
+            } catch (e) {
+              console.warn("Broadcast new-listing email failed for", to, e)
+            }
+          })
+        )
+      } catch (e) {
+        console.warn("Email broadcast loop error (new listing)", e)
       }
     } catch (notifyErr) {
       console.error("Failed to create notifications or pending scheduling:", notifyErr)

@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getDatabase } from "@/lib/mongodb"
+import { sendNotificationEmail } from "@/lib/email"
 import type { User } from "@/lib/types"
 import bcrypt from "bcryptjs"
 
@@ -37,6 +38,17 @@ export async function POST(request: NextRequest) {
       createdAt: new Date().toISOString(),
     };
     await db.collection("users").insertOne(newUser);
+    // Send welcome email (fire-and-forget; safely no-op if SMTP not configured)
+    try {
+      await sendNotificationEmail(
+        email,
+        "Welcome to FoodShare",
+        `Hi ${name || "there"}, your FoodShare account is ready. You can now list or find food!`,
+        "http://foodshare-black.vercel.app/"
+      )
+    } catch (e) {
+      console.warn("Welcome email failed for", email, e)
+    }
     const { password: _, ...userWithoutPassword } = newUser;
     return NextResponse.json({
       message: "Account created successfully",
