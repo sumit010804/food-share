@@ -27,6 +27,9 @@ export function SignupForm() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
+  const [info, setInfo] = useState("")
+  const [otpStep, setOtpStep] = useState(false)
+  const [otp, setOtp] = useState("")
   const [focusedField, setFocusedField] = useState<string | null>(null)
   const router = useRouter()
 
@@ -95,9 +98,13 @@ export function SignupForm() {
       const data = await response.json()
 
       if (response.ok) {
-        // Store user data in localStorage (in a real app, use proper session management)
-        localStorage.setItem("user", JSON.stringify(data.user))
-        router.push("/dashboard")
+        if (data.requiresVerification) {
+          setOtpStep(true)
+          setInfo("We sent a 6-digit code to your email. Enter it below to verify.")
+        } else {
+          localStorage.setItem("user", JSON.stringify(data.user))
+          router.push("/dashboard")
+        }
       } else {
         setError(data.message || "Signup failed")
       }
@@ -112,12 +119,73 @@ export function SignupForm() {
     setFormData((prev) => ({ ...prev, [field]: value }))
   }
 
+  const handleVerify = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError("")
+    setInfo("")
+    if (!otp || otp.length < 6) {
+      setError("Enter the 6-digit code")
+      return
+    }
+    try {
+      const res = await fetch("/api/auth/verify-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: formData.email.trim().toLowerCase(), code: otp })
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setError(data.message || "Verification failed")
+        return
+      }
+      setInfo("Verified! Redirecting…")
+      // Auto-login after verification
+      const loginRes = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: formData.email.trim().toLowerCase(), password: formData.password })
+      })
+      const loginData = await loginRes.json()
+      if (loginRes.ok) {
+        localStorage.setItem("user", JSON.stringify(loginData.user))
+        router.push("/dashboard")
+      } else {
+        setError(loginData.message || "Login failed after verification")
+      }
+    } catch (e) {
+      setError("Verification failed. Try again.")
+    }
+  }
+
+  const handleResend = async () => {
+    setError("")
+    setInfo("")
+    try {
+      const res = await fetch("/api/auth/resend-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: formData.email.trim().toLowerCase() })
+      })
+      const data = await res.json()
+      if (res.ok) setInfo("Code sent. Check your inbox.")
+      else setError(data.message || "Could not send code")
+    } catch {
+      setError("Could not send code")
+    }
+  }
+
   return (
     <div className="animate-fade-in">
+      {!otpStep ? (
       <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-6">
         {error && (
           <Alert variant="destructive" className="animate-slide-up border-red-200 bg-red-50">
             <AlertDescription className="text-red-800">{error}</AlertDescription>
+          </Alert>
+        )}
+        {info && !error && (
+          <Alert className="animate-slide-up border-emerald-200 bg-emerald-50">
+            <AlertDescription className="text-emerald-800">{info}</AlertDescription>
           </Alert>
         )}
 
@@ -452,7 +520,7 @@ export function SignupForm() {
           </div>
         </div>
 
-        <Button
+  <Button
           type="submit"
           className="w-full h-12 sm:h-14 gradient-primary text-white font-semibold hover-lift shadow-lg hover:shadow-emerald-200 transition-all duration-300 animate-slide-up delay-700 group text-sm sm:text-base"
           disabled={isLoading}
@@ -469,6 +537,40 @@ export function SignupForm() {
           )}
         </Button>
       </form>
+      ) : (
+        <form onSubmit={handleVerify} className="space-y-4 sm:space-y-6">
+          {error && (
+            <Alert variant="destructive" className="animate-slide-up border-red-200 bg-red-50">
+              <AlertDescription className="text-red-800">{error}</AlertDescription>
+            </Alert>
+          )}
+          {info && !error && (
+            <Alert className="animate-slide-up border-emerald-200 bg-emerald-50">
+              <AlertDescription className="text-emerald-800">{info}</AlertDescription>
+            </Alert>
+          )}
+          <div className="space-y-2 sm:space-y-3">
+            <Label className="text-slate-700 font-medium text-sm sm:text-base">Enter verification code</Label>
+            <div>
+              {/* Fallback simple input; we also have a styled OTP component in components/ui/input-otp.tsx */}
+              <Input
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={6}
+                placeholder="123456"
+                value={otp}
+                onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
+                className="h-12 sm:h-14 text-center tracking-widest text-lg"
+              />
+            </div>
+            <div className="flex items-center justify-between text-sm text-slate-600">
+              <button type="button" onClick={() => setOtpStep(false)} className="underline">Back</button>
+              <button type="button" onClick={handleResend} className="underline">Resend code</button>
+            </div>
+          </div>
+          <Button type="submit" className="w-full h-12 sm:h-14 gradient-primary text-white font-semibold">Verify and continue</Button>
+        </form>
+      )}
     </div>
   )
 }

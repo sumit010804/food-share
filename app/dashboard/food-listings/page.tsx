@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -13,6 +13,7 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import Link from "next/link"
 import FoodListingsMap from "@/components/food-listings-map"
+import ListingChat from "@/components/listing-chat"
 
 interface User {
   id: string
@@ -54,10 +55,13 @@ export default function FoodListingsPage() {
   const [filteredListings, setFilteredListings] = useState<FoodListing[]>([])
   const [selectedListing, setSelectedListing] = useState<FoodListing | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [chatOpen, setChatOpen] = useState(false)
+  const [chatListing, setChatListing] = useState<FoodListing | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
   const [filterType, setFilterType] = useState("all")
   const [filterStatus, setFilterStatus] = useState("active")
   const router = useRouter()
+  const searchParams = useSearchParams()
 
   useEffect(() => {
     const userData = localStorage.getItem("user")
@@ -196,6 +200,27 @@ export default function FoodListingsPage() {
     window.addEventListener('listing:created', onListingCreated)
     return () => window.removeEventListener('listing:created', onListingCreated)
   }, [])
+
+  // Deep-link: open chat dialog when ?chat=<listingId> is present and user is authorized
+  useEffect(() => {
+    const targetId = searchParams?.get('chat')
+    if (!targetId || listings.length === 0 || !user) return
+    const listing = listings.find((l) => String(l.id) === String(targetId))
+    if (!listing) return
+    const ownerId = String((listing as any).createdBy || (listing as any).providerId || (listing as any).donorId || '')
+    const reserverId = String((listing as any).reservedBy || (listing as any).reservedById || '')
+    const me = String((user as any)?.id || (user as any)?._id || '')
+    const ownerEmail = String((listing as any).createdByEmail || (listing as any).provider?.email || '')
+    const reserverEmail = String((listing as any).reservedByEmail || '')
+    const myEmail = String((user as any)?.email || '')
+    const canChat = listing.status === 'reserved' && (
+      me === ownerId || me === reserverId || (ownerEmail && myEmail && ownerEmail === myEmail) || (reserverEmail && myEmail && reserverEmail === myEmail)
+    )
+    if (canChat) {
+      setChatListing(listing)
+      setChatOpen(true)
+    }
+  }, [searchParams, listings, user])
 
   const handleLogout = () => {
     localStorage.removeItem("user")
@@ -513,6 +538,35 @@ export default function FoodListingsPage() {
                   >
                     Details
                   </Button>
+
+                  {(() => {
+                    const ownerId = String((listing as any).createdBy || (listing as any).providerId || (listing as any).donorId || '')
+                    const reserverId = String((listing as any).reservedBy || (listing as any).reservedById || '')
+                    const me = String((user as any)?.id || (user as any)?._id || '')
+                    const ownerEmail = String((listing as any).createdByEmail || (listing as any).provider?.email || '')
+                    const reserverEmail = String((listing as any).reservedByEmail || '')
+                    const myEmail = String(user?.email || '')
+                    const canChat = listing.status === 'reserved' && (
+                      me === ownerId ||
+                      me === reserverId ||
+                      // Fallback: some legacy listings store owner via email, not id
+                      (ownerEmail && myEmail && ownerEmail === myEmail) || (reserverEmail && myEmail && reserverEmail === myEmail)
+                    )
+                    if (!canChat) return null
+                    return (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="flex-1 bg-emerald-600/10 text-emerald-700 hover:bg-emerald-600/20 h-10 font-medium border border-emerald-200"
+                        onClick={() => {
+                          setChatListing(listing)
+                          setChatOpen(true)
+                        }}
+                      >
+                        Chat
+                      </Button>
+                    )
+                  })()}
                 </div>
               </CardContent>
             </Card>
@@ -580,6 +634,8 @@ export default function FoodListingsPage() {
                     <p className="text-xs text-emerald-500">Special Instructions / Contact</p>
                     <p className="font-medium text-emerald-800">{selectedListing.specialInstructions || selectedListing.contactInfo || 'None provided'}</p>
                   </div>
+
+                  {/* Chat moved to a dedicated dialog accessible via the Chat button on each card */}
                 </div>
 
                 {/* Right: provider / lister details */}
@@ -610,6 +666,26 @@ export default function FoodListingsPage() {
             <DialogFooter>
               <div className="w-full flex justify-end">
                 <Button onClick={() => setDialogOpen(false)} variant="outline">Close</Button>
+              </div>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Chat Dialog */}
+        <Dialog open={chatOpen} onOpenChange={(open) => { if (!open) setChatListing(null); setChatOpen(open) }}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Chat</DialogTitle>
+              <DialogDescription>
+                {chatListing ? `Discuss pickup for "${chatListing.title}"` : "Start chatting"}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="mt-2">
+              {chatListing && <ListingChat listingId={chatListing.id} />}
+            </div>
+            <DialogFooter>
+              <div className="w-full flex justify-end">
+                <Button onClick={() => setChatOpen(false)} variant="outline">Close</Button>
               </div>
             </DialogFooter>
           </DialogContent>

@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getDatabase } from "@/lib/mongodb"
-import { sendNotificationEmail } from "@/lib/email"
+// For chat_message and most in-app flows we skip email. Email send is used only for broadcast new listings (kept elsewhere).
 import { ObjectId } from "mongodb"
 import type { Notification } from "@/lib/types"
 
@@ -60,22 +60,7 @@ export async function POST(request: NextRequest) {
         await db.collection("notifications").insertMany(docs)
       }
 
-      // Fire-and-forget emails (skip if SMTP not configured). Resolve per-user email.
-      try {
-        await Promise.all(
-          users.map(async (u: any) => {
-            if (!u?.email) return
-            try {
-              await sendNotificationEmail(u.email, data.title, data.message, data.actionUrl)
-            } catch (e) {
-              // don't block API on email failures
-              console.warn("Email send failed for", u.email, e)
-            }
-          })
-        )
-      } catch (e) {
-        console.warn("Broadcast email loop encountered an error", e)
-      }
+  // Skip email broadcast for generic POST /api/notifications to keep notifications in-app.
 
       return NextResponse.json({
         message: "Notification broadcasted successfully",
@@ -105,26 +90,7 @@ export async function POST(request: NextRequest) {
 
     await db.collection("notifications").insertOne(notification)
 
-    // Try to send email to recipient if we can resolve their email
-    try {
-      const recipientId = notification.userId
-      let objectId: ObjectId | null = null
-      if (typeof recipientId === 'string' && /^[0-9a-fA-F]{24}$/.test(recipientId)) {
-        try { objectId = new ObjectId(recipientId) } catch {}
-      }
-      const user = await db.collection("users").findOne({
-        $or: [
-          { id: recipientId },
-          ...(objectId ? [{ _id: objectId }] as any[] : []),
-        ],
-      })
-      const to = (user as any)?.email
-      if (to) {
-        await sendNotificationEmail(to, notification.title, notification.message, notification.actionUrl || undefined)
-      }
-    } catch (e) {
-      console.warn("Targeted email send failed", e)
-    }
+  // Skip targeted email send; keep chat and other app notifications in-app.
 
     return NextResponse.json({
       message: "Notification created successfully",

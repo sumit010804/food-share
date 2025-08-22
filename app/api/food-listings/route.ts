@@ -261,7 +261,7 @@ export async function POST(request: NextRequest) {
         await db.collection("pending_notifications").insertMany(pendingDocs)
       }
 
-      // NEW: Email ALL users with a valid email (excluding the lister), regardless of lastActive.
+      // Email ALL users with a valid email (excluding the lister), regardless of lastActive.
       try {
         const title = `New food listed: ${newListing.title}`
         const message = `${newListing.donorName} listed "${newListing.title}" — check it out!`

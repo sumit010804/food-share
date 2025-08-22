@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getDatabase } from "@/lib/mongodb"
-import { sendNotificationEmail } from "@/lib/email"
+import { sendNotificationEmail, sendOtpEmail } from "@/lib/email"
 import type { User } from "@/lib/types"
 import bcrypt from "bcryptjs"
 
@@ -40,26 +40,37 @@ export async function POST(request: NextRequest) {
       canteenName: canteenName || null,
       hostelName: hostelName || null,
       createdAt: new Date().toISOString(),
+      isVerified: false,
+      otpCode: null,
+      otpExpiresAt: null,
     };
     await db.collection("users").insertOne(newUser);
-    // Send welcome email (fire-and-forget; safely no-op if SMTP not configured)
+
+    // Generate OTP and email to user
+    const code = generateOtpCode()
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString()
+    await db.collection("users").updateOne({ email }, { $set: { otpCode: code, otpExpiresAt: expiresAt } })
+    if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
+      console.info(`[DEV OTP] Verification code for ${email}: ${code}`)
+    }
     try {
-      await sendNotificationEmail(
-        email,
-        "Welcome to FoodShare",
-        `Hi ${name || "there"}, your FoodShare account is ready. You can now list or find food!`,
-        "http://foodshare-black.vercel.app/"
-      )
+      await sendOtpEmail(email, code)
     } catch (e) {
-      console.warn("Welcome email failed for", email, e)
+      console.warn("OTP email failed for", email, e)
     }
     const { password: _, ...userWithoutPassword } = newUser;
     return NextResponse.json({
-      message: "Account created successfully",
+      message: "Account created. Please verify with the OTP sent to your email.",
       user: userWithoutPassword,
+      requiresVerification: true,
     });
   } catch (error) {
     console.error("Unexpected error in signup route:", error)
     return NextResponse.json({ message: "Internal server error" }, { status: 500 });
   }
+}
+
+function generateOtpCode() {
+  // 6-digit numeric code
+  return String(Math.floor(100000 + Math.random() * 900000))
 }

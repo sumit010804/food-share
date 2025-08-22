@@ -6,6 +6,7 @@ export interface User {
   role: "student" | "staff" | "canteen_manager" | "hostel_manager" | "event_organizer" | "ngo_representative"
   organization: string
   createdAt: string
+  isVerified?: boolean
 }
 
 export interface FoodListing {
@@ -40,6 +41,7 @@ export interface Notification {
     | "item_collected"
     | "collection_confirmed"
     | "event_added"
+  | "chat_message"
   title: string
   message: string
   read: boolean

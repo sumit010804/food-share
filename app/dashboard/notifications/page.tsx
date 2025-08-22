@@ -22,7 +22,7 @@ interface User {
 
 interface Notification {
   id: string
-  type: "new_listing" | "pickup_reminder" | "expiry_warning" | "reservation_confirmed" | "system"
+  type: "new_listing" | "pickup_reminder" | "expiry_warning" | "reservation_confirmed" | "chat_message" | "system"
   title: string
   message: string
   foodListingId?: string
@@ -84,7 +84,18 @@ export default function NotificationsPage() {
       const url = userId ? `/api/notifications?userId=${encodeURIComponent(userId)}` : "/api/notifications"
       const response = await fetch(url)
       const data = await response.json()
-      setNotifications(data.notifications || [])
+      const normalized: Notification[] = (data.notifications || []).map((n: any) => ({
+        id: n.id || (n._id ? String(n._id) : `${n.type}-${n.createdAt || Date.now()}`),
+        type: (n.type as any) || "system",
+        title: n.title || "",
+        message: n.message || "",
+        foodListingId: n.metadata?.listingId || n.listingId,
+        isRead: typeof n.isRead === 'boolean' ? n.isRead : (typeof n.read === 'boolean' ? n.read : false),
+        createdAt: n.createdAt || new Date().toISOString(),
+        priority: (n.priority as any) || "medium",
+        actionUrl: n.actionUrl,
+      }))
+      setNotifications(normalized)
     } catch (error) {
       console.error("Failed to fetch notifications:", error)
     }
@@ -152,6 +163,8 @@ export default function NotificationsPage() {
         return <AlertTriangle className="h-4 w-4 text-red-600" />
       case "reservation_confirmed":
         return <Check className="h-4 w-4 text-green-600" />
+      case "chat_message":
+        return <Bell className="h-4 w-4 text-emerald-600" />
       default:
         return <Bell className="h-4 w-4 text-slate-600" />
     }
@@ -413,7 +426,17 @@ export default function NotificationsPage() {
                     !notification.isRead ? "bg-cyan-50/50 border-cyan-200" : ""
                   }`}
                 >
-                  <CardContent className="p-4">
+                  <CardContent className="p-4 cursor-pointer" onClick={() => {
+                    // If this is a chat message with a listingId, deep-link to Food Listings chat
+                    const listingId = (notification as any).foodListingId || (notification as any).listingId
+                    if (notification.type === 'chat_message' && listingId) {
+                      router.push(`/dashboard/food-listings?chat=${encodeURIComponent(String(listingId))}`)
+                      return
+                    }
+                    if (notification.actionUrl) {
+                      router.push(notification.actionUrl)
+                    }
+                  }}>
                     <div className="flex items-start gap-4">
                       <div className="flex-shrink-0 mt-1">{getNotificationIcon(notification.type)}</div>
                       <div className="flex-1 min-w-0">

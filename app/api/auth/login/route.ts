@@ -25,6 +25,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: "Invalid email or password" }, { status: 401 });
     }
 
+  if (user.isVerified === false) {
+      return NextResponse.json({ message: "Please verify your email to sign in.", requiresVerification: true }, { status: 403 })
+    }
+
     const stored = user.password as string | undefined
     let passwordMatch = false
     if (stored) {

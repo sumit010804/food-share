@@ -20,8 +20,9 @@ interface Notification {
     | "new_listing"
     | "pickup_reminder"
     | "expiry_warning"
-    | "reservation_confirmed"
-    | "system"
+  | "reservation_confirmed"
+  | "chat_message"
+  | "system"
     | "new_event"
     | "item_collected"
     | "collection_confirmed"
@@ -89,7 +90,7 @@ export function NotificationBell() {
         type: n.type,
         title: n.title,
         message: n.message,
-        foodListingId: n.metadata?.foodListingId,
+        foodListingId: (n.metadata && (n.metadata.listingId || n.metadata.foodListingId)) || undefined,
         eventId: n.metadata?.eventId,
         collectedBy: n.metadata?.collectorName,
         donatedBy: n.metadata?.donorName,

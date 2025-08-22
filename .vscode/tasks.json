@@ -17,6 +17,12 @@
 				"$tsc"
 			],
 			"group": "build"
+		},
+		{
+			"label": "install-zxing-deps",
+			"type": "shell",
+			"command": "pnpm add @zxing/browser @zxing/library",
+			"group": "build"
 		}
 	]
 }

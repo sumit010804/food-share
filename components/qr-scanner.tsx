@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { QrCode, Camera, X, Package, MapPin, Clock, User, Building, CheckCircle } from "lucide-react"
 import { parseQRCodeData, type QRCodeData } from "@/lib/qr-generator"
-import jsQR from "jsqr"
+// Use runtime-loaded jsQR to avoid SSR import issues
 
 interface QRScannerProps {
   onScan?: (data: QRCodeData) => void
@@ -26,21 +26,47 @@ export function QRScanner({ onScan }: QRScannerProps) {
   const streamRef = useRef<MediaStream | null>(null)
   const scanningRef = useRef(false)
   const lastDecodedAtRef = useRef<number>(0)
+  const jsQRRef = useRef<any>(null)
+  const [videoReady, setVideoReady] = useState(false)
+  const [torchAvailable, setTorchAvailable] = useState(false)
+  const [torchOn, setTorchOn] = useState(false)
 
   const startCamera = async () => {
     try {
       setError("")
+      // Ensure jsQR is loaded before scanning begins
+      if (!jsQRRef.current) {
+        try {
+          const mod: any = await import('jsqr')
+          jsQRRef.current = mod?.default || mod
+        } catch (e) {
+          console.warn('Failed to load jsQR for legacy scanner', e)
+        }
+      }
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" }, // Use back camera if available
+        video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } }, // back camera if available
       })
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream
         streamRef.current = stream
-  setIsScanning(true)
-  scanningRef.current = true
-  // Start scanning for QR codes
-  scanForQRCode()
+        try { videoRef.current.setAttribute('playsinline', 'true') } catch {}
+        try { (videoRef.current as any).muted = true } catch {}
+        await new Promise<void>((resolve) => {
+          const v = videoRef.current!
+          const onLoaded = () => { v.play().catch(() => {}).finally(() => resolve()) }
+          if (v.readyState >= 1) onLoaded(); else v.addEventListener('loadedmetadata', onLoaded, { once: true })
+        })
+        setVideoReady(true)
+        // detect torch capability
+        try {
+          const track = stream.getVideoTracks()[0]
+          const caps: any = (track && typeof track.getCapabilities === 'function') ? track.getCapabilities() : null
+          setTorchAvailable(!!(caps && caps.torch))
+        } catch {}
+        setIsScanning(true)
+        scanningRef.current = true
+        scanForQRCode()
       }
     } catch (err) {
       setError("Unable to access camera. Please check permissions.")
@@ -50,11 +76,19 @@ export function QRScanner({ onScan }: QRScannerProps) {
 
   const stopCamera = () => {
     if (streamRef.current) {
+      try {
+        if (torchOn) {
+          const track = streamRef.current.getVideoTracks()[0]
+          try { (track as any).applyConstraints({ advanced: [{ torch: false }] }) } catch {}
+          setTorchOn(false)
+        }
+      } catch {}
       streamRef.current.getTracks().forEach((track) => track.stop())
       streamRef.current = null
     }
     setIsScanning(false)
     scanningRef.current = false
+    setVideoReady(false)
   }
 
   const handleDecodedText = async (text: string) => {
@@ -86,20 +120,59 @@ export function QRScanner({ onScan }: QRScannerProps) {
 
     const video = videoRef.current
     const canvas = canvasRef.current
-    const ctx = canvas.getContext("2d")
+    const ctx = canvas.getContext("2d", { willReadFrequently: true } as any) as CanvasRenderingContext2D | null
 
     if (!ctx || video.readyState !== video.HAVE_ENOUGH_DATA) {
       if (scanningRef.current) setTimeout(scanForQRCode, 120)
       return
     }
 
-    canvas.width = video.videoWidth
-    canvas.height = video.videoHeight
-    ctx.drawImage(video, 0, 0)
+    // Fast path: BarcodeDetector if supported
+    const BarcodeDetectorCtor: any = (window as any).BarcodeDetector
+    if (BarcodeDetectorCtor) {
+      try {
+        const startDetector = async () => {
+          let detector: any = null
+          try {
+            if (typeof BarcodeDetectorCtor.getSupportedFormats === 'function') {
+              const formats: string[] = await BarcodeDetectorCtor.getSupportedFormats()
+              if (!Array.isArray(formats) || !formats.includes('qr_code')) throw new Error('qr_code not supported')
+            }
+            detector = new BarcodeDetectorCtor({ formats: ['qr_code'] })
+          } catch { detector = null }
+          if (detector) {
+            const loop = async () => {
+              if (!scanningRef.current || !isScanning) return
+              try {
+                const codes = await detector.detect(video)
+                if (codes && codes.length) {
+                  const v = (codes[0] as any).rawValue || (codes[0] as any).rawData || ''
+                  if (v) {
+                    handleDecodedText(String(v))
+                    return
+                  }
+                }
+              } catch {}
+              requestAnimationFrame(loop)
+            }
+            requestAnimationFrame(loop)
+          }
+        }
+        startDetector()
+      } catch {}
+    }
+
+    // Downscale for performance and stability
+    const targetW = Math.min(640, video.videoWidth || 640)
+    const scale = targetW / (video.videoWidth || targetW)
+    const targetH = Math.floor((video.videoHeight || 480) * scale)
+    canvas.width = targetW
+    canvas.height = targetH
+    ctx.drawImage(video, 0, 0, targetW, targetH)
 
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
     try {
-      const code = jsQR(imageData.data, imageData.width, imageData.height)
+      const code = jsQRRef.current ? jsQRRef.current(imageData.data, imageData.width, imageData.height) : null
       if (code && code.data) {
         handleDecodedText(code.data)
       }
@@ -276,7 +349,7 @@ export function QRScanner({ onScan }: QRScannerProps) {
             ) : (
               <div className="space-y-4">
                 <div className="relative">
-                  <video ref={videoRef} autoPlay playsInline className="w-full h-64 bg-black rounded-lg object-cover" />
+                  <video ref={videoRef} autoPlay playsInline className="w-full h-64 bg-black rounded-lg object-cover" style={{ opacity: videoReady ? 1 : 0.6 }} />
                   <canvas ref={canvasRef} className="hidden" />
 
                   {/* Scanning overlay */}
@@ -290,10 +363,27 @@ export function QRScanner({ onScan }: QRScannerProps) {
 
                 <p className="text-center text-sm text-slate-600">Point camera at QR code to scan</p>
 
-                <Button onClick={stopCamera} variant="outline" className="w-full bg-transparent">
+                <div className="flex gap-2">
+                  <Button onClick={stopCamera} variant="outline" className="flex-1 bg-transparent">
                   <X className="h-4 w-4 mr-2" />
                   Stop Camera
-                </Button>
+                  </Button>
+                  {isScanning && torchAvailable && (
+                    <Button type="button" variant="outline" onClick={async () => {
+                      try {
+                        if (!streamRef.current) return
+                        const track = streamRef.current.getVideoTracks()[0]
+                        await (track as any).applyConstraints({ advanced: [{ torch: !torchOn }] })
+                        setTorchOn(!torchOn)
+                      } catch (e) {
+                        console.warn('Torch toggle failed', e)
+                        setTorchAvailable(false)
+                      }
+                    }}>
+                      {torchOn ? 'Torch off' : 'Torch on'}
+                    </Button>
+                  )}
+                </div>
               </div>
             )}
           </div>
