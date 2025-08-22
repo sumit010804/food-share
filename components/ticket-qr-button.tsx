@@ -95,21 +95,7 @@ export default function TicketQRButton({ collectionId, listingId, size = 240 }: 
             </div>
           )}
           {!loading && ticket && (
-            <div className="w-full flex items-center justify-between gap-2">
-              <div className="text-xs text-slate-500">Expires at: {new Date(ticket.expiresAt).toLocaleString()}</div>
-              <Button
-                size="sm"
-                variant="outline"
-                className="text-xs"
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(ticket.token)
-                  } catch (e) {
-                    console.error('Clipboard error', e)
-                  }
-                }}
-              >Copy token</Button>
-            </div>
+            <div className="text-xs text-slate-500">Expires at: {new Date(ticket.expiresAt).toLocaleString()}</div>
           )}
         </div>
       </DialogContent>

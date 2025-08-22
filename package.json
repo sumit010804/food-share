@@ -7,7 +7,6 @@
     "dev": "next dev",
     "lint": "next lint",
     "start": "next start",
-  "test:e2e:qr": "DEV_SERVER_URL=http://localhost:3000 node scripts/http_ticket_flow.mjs",
     "db:indexes": "node -r dotenv/config scripts/create-indexes.mjs",
     "db:cleanup:collections": "node -r dotenv/config scripts/cleanup-duplicate-collections.js"
   },

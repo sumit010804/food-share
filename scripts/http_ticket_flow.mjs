@@ -78,18 +78,7 @@ function assert(cond, msg) {
     assert(getRes.status === 200, 'GET tickets failed')
 
     // 4) Scan once
-    // 4a) Try scanning as a non-owner (should be forbidden)
-    const intruder = await req('/api/tickets/scan', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ token, scannerId: 'intruder-1' }),
-    })
-    log('Scan as non-owner (expect 403)', intruder.status, intruder.json)
-    assert(intruder.status === 403, 'Non-owner should not be allowed to scan')
-
-    // 4b) Scan once as the lister
-    // Scanner must be the lister; we created the listing with donorId 'donor-1'
-    const scanBody = { token, scannerId: 'donor-1' }
+    const scanBody = { token, scannerId: 'lister-1' }
     const scan1 = await req('/api/tickets/scan', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },

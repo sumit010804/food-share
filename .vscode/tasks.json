@@ -17,13 +17,6 @@
 				"$tsc"
 			],
 			"group": "build"
-		},
-		{
-			"label": "Restart Next.js dev server",
-			"type": "shell",
-			"command": "pkill -f \"next dev\" || true; pnpm run dev",
-			"isBackground": true,
-			"group": "build"
 		}
 	]
 }
