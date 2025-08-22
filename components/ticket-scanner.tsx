@@ -212,14 +212,24 @@ export default function TicketScanner({ scannerId, expectedListingId: expectedFr
     setLoading(true)
     setError(null)
     try {
-      const deviceId = scannerId || localStorage.getItem('deviceId') || `dev-${Math.random().toString(36).slice(2,8)}`
-      // store generated deviceId for future
-      if (!localStorage.getItem('deviceId')) localStorage.setItem('deviceId', deviceId)
+      // Prefer logged-in user id as scanner identity so only lister can validate on server.
+      let loggedInId: string | undefined
+      try {
+        const u = localStorage.getItem('user')
+        if (u) {
+          const parsed = JSON.parse(u)
+          if (parsed && (parsed.id || parsed._id)) loggedInId = String(parsed.id || parsed._id)
+        }
+      } catch {}
+      const fallbackDevice = localStorage.getItem('deviceId')
+      const effectiveScannerId = scannerId || loggedInId || fallbackDevice || `dev-${Math.random().toString(36).slice(2,8)}`
+      // persist a generated fallback device id for later use if needed
+      if (!fallbackDevice && !loggedInId && !scannerId) localStorage.setItem('deviceId', effectiveScannerId)
 
       const res = await fetch('/api/tickets/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, scannerId: deviceId, expectedListingId: expectedListingId || undefined }),
+  body: JSON.stringify({ token, scannerId: effectiveScannerId, expectedListingId: expectedListingId || undefined }),
       })
       const js = await res.json()
       if (res.ok) {
@@ -308,7 +318,7 @@ export default function TicketScanner({ scannerId, expectedListingId: expectedFr
                 )}
               </div>
 
-              <div className="text-sm text-slate-600">If automatic camera scan fails, paste the QR token below and press Validate.</div>
+              <div className="text-sm text-slate-600">Note: You must be logged in as the lister to validate. If camera scan fails, paste the QR token below and press Validate.</div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 <div>
                   <label className="block text-xs text-slate-500 mb-1">Expected Listing ID (optional, to enforce match)</label>

@@ -32,7 +32,37 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: 'Item already collected' }, { status: 409 })
     }
 
-    // Mark ticket used once (atomic) – accept null or missing usedAt
+    // Authorization: only the original lister (owner of the listing) can validate/scan the ticket.
+    // Resolve the related listing and derive possible owner id fields.
+    try {
+      const foodListingsCol = db.collection('foodListings')
+      const listingQueries: any[] = [{ id: colPre.listingId }]
+      if (colPre.listingId && /^[0-9a-fA-F]{24}$/.test(String(colPre.listingId))) {
+        try { listingQueries.push({ _id: new ObjectId(String(colPre.listingId)) }) } catch {}
+      }
+      const listingDoc: any = await foodListingsCol.findOne({ $or: listingQueries })
+      if (!listingDoc) {
+        return NextResponse.json({ message: 'Listing not found for this ticket' }, { status: 404 })
+      }
+
+      const ownerCandidates = [
+        listingDoc.providerId,
+        listingDoc.donorId,
+        listingDoc.createdBy,
+        (listingDoc._id && String(listingDoc._id)), // legacy fallback (rare)
+      ].filter(Boolean).map((v: any) => String(v))
+
+      const scannerStr = scannerId ? String(scannerId) : ''
+      const isOwner = ownerCandidates.some((oid: string) => oid === scannerStr)
+      if (!isOwner) {
+        return NextResponse.json({ message: 'Only the lister can validate this ticket' }, { status: 403 })
+      }
+    } catch (authErr) {
+      console.warn('Scan auth check failed', authErr)
+      return NextResponse.json({ message: 'Authorization failed' }, { status: 403 })
+    }
+
+  // Mark ticket used once (atomic) – accept null or missing usedAt
     const usedAt = new Date()
     const updateRes = await ticketsCol.updateOne(
       { id: payload.ticketId, token, $or: [ { usedAt: null }, { usedAt: { $exists: false } } ] },
