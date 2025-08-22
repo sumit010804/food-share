@@ -181,6 +181,8 @@ export default function EventsPage() {
     return <div>Loading...</div>
   }
 
+  const canManageEvents = user && (user.userType === 'admin' || user.userType === 'event')
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-cyan-50 to-white">
       {/* Header */}
@@ -218,13 +220,15 @@ export default function EventsPage() {
             <h2 className="text-3xl font-bold text-slate-800 mb-2">Event Integration</h2>
             <p className="text-slate-600">Manage campus events and predict surplus food opportunities</p>
           </div>
-          <Button
-            onClick={() => setShowCreateDialog(true)}
-            className="bg-cyan-800 hover:bg-cyan-900 text-white mt-4 md:mt-0"
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            Create Event
-          </Button>
+          {canManageEvents && (
+            <Button
+              onClick={() => setShowCreateDialog(true)}
+              className="bg-cyan-800 hover:bg-cyan-900 text-white mt-4 md:mt-0"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Create Event
+            </Button>
+          )}
         </div>
 
         {/* Attention Alert */}
@@ -233,9 +237,11 @@ export default function EventsPage() {
             <AlertTriangle className="h-4 w-4 text-amber-600" />
             <AlertDescription className="text-amber-800">
               <strong>{eventsNeedingAttention.length} event(s)</strong> recently completed with predicted surplus food.{" "}
-              <button onClick={() => setShowFoodDialog(true)} className="underline hover:no-underline font-medium">
-                Log surplus food now
-              </button>
+              {canManageEvents && (
+                <button onClick={() => setShowFoodDialog(true)} className="underline hover:no-underline font-medium">
+                  Log surplus food now
+                </button>
+              )}
             </AlertDescription>
           </Alert>
         )}
@@ -341,7 +347,7 @@ export default function EventsPage() {
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
-                          {event.status === "completed" &&
+                          {canManageEvents && event.status === "completed" &&
                             !event.foodLogged &&
                             ((event.foodPrediction?.expectedSurplusKg ?? event.foodPrediction?.expectedSurplus) ?? 0) > 0 && (
                               <Button
@@ -412,7 +418,7 @@ export default function EventsPage() {
                     )}
 
                     <div className="flex gap-2 mt-4">
-                        {event.status === "completed" &&
+                        {canManageEvents && event.status === "completed" &&
                         !event.foodLogged &&
                         ((event.foodPrediction?.expectedSurplusKg ?? event.foodPrediction?.expectedSurplus) ?? 0) > 0 && (
                           <Button
@@ -540,15 +546,17 @@ export default function EventsPage() {
       </div>
 
       {/* Dialogs */}
-      <CreateEventDialog
-        open={showCreateDialog}
-        onOpenChange={setShowCreateDialog}
-        onEventCreated={fetchEvents}
-        user={user}
-      />
+      {canManageEvents && (
+        <CreateEventDialog
+          open={showCreateDialog}
+          onOpenChange={setShowCreateDialog}
+          onEventCreated={fetchEvents}
+          user={user}
+        />
+      )}
 
       <PostEventFoodDialog
-        open={showFoodDialog}
+        open={canManageEvents ? showFoodDialog : false}
         onOpenChange={setShowFoodDialog}
         event={selectedEvent}
         eventsNeedingAttention={eventsNeedingAttention}

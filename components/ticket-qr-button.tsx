@@ -15,6 +15,7 @@ interface Props {
 export default function TicketQRButton({ collectionId, listingId, size = 240 }: Props) {
   const [ticket, setTicket] = useState<any>(null)
   const [loading, setLoading] = useState(false)
+  const [copied, setCopied] = useState(false)
 
   const fetchTicket = async () => {
     setLoading(true)
@@ -67,6 +68,28 @@ export default function TicketQRButton({ collectionId, listingId, size = 240 }: 
     }
   }
 
+  const copyToken = async () => {
+    if (!ticket?.token) return
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(ticket.token)
+      } else {
+        const ta = document.createElement('textarea')
+        ta.value = ticket.token
+        ta.style.position = 'fixed'
+        ta.style.left = '-9999px'
+        document.body.appendChild(ta)
+        ta.select()
+        document.execCommand('copy')
+        document.body.removeChild(ta)
+      }
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch (e) {
+      console.error('Failed to copy token', e)
+    }
+  }
+
   return (
     <Dialog>
       <DialogTrigger asChild>
@@ -90,8 +113,15 @@ export default function TicketQRButton({ collectionId, listingId, size = 240 }: 
             </div>
           )}
           {!loading && ticket && (
-            <div className="bg-white p-4 rounded shadow">
-              <QRCodeSVG value={ticket.token} size={size} level="M" includeMargin={true} />
+            <div className="flex flex-col items-center gap-3">
+              <div className="bg-white p-4 rounded shadow">
+                <QRCodeSVG value={ticket.token} size={size} level="M" includeMargin={true} />
+              </div>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="secondary" onClick={copyToken}>
+                  {copied ? 'Copied' : 'Copy token'}
+                </Button>
+              </div>
             </div>
           )}
           {!loading && ticket && (

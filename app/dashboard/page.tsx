@@ -28,6 +28,8 @@ export default function DashboardPage() {
   const [loadingData, setLoadingData] = useState(false)
   const [dataError, setDataError] = useState<string | null>(null)
   const router = useRouter()
+  const canListFood = !!(user && (user.userType === 'canteen' || user.userType === 'hostel' || user.userType === 'admin'))
+  const isStudentOrNgo = !!(user && (user.userType === 'student' || user.userType === 'ngo'))
 
   useEffect(() => {
     const userData = localStorage.getItem("user")
@@ -156,6 +158,7 @@ export default function DashboardPage() {
 
         {/* Quick Actions */}
         <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
+          {canListFood && (
           <Link href="/dashboard/food-listings/create" className="animate-scale-in">
             <Card className="hover-lift border-emerald-100 hover:border-emerald-200 transition-all duration-300 hover:shadow-xl hover:shadow-emerald-100/50 group h-full">
               <CardHeader className="pb-4">
@@ -171,6 +174,7 @@ export default function DashboardPage() {
               </CardHeader>
             </Card>
           </Link>
+          )}
 
           <Link href="/dashboard/food-listings" className="animate-scale-in delay-100">
             <Card className="hover-lift border-emerald-100 hover:border-emerald-200 transition-all duration-300 hover:shadow-xl hover:shadow-emerald-100/50 group h-full">
@@ -221,6 +225,7 @@ export default function DashboardPage() {
 
         {/* Secondary Actions */}
         <div className="grid md:grid-cols-2 gap-8 mb-12">
+          {(user && (user.userType === 'admin' || user.userType === 'event')) && (
           <Link href="/dashboard/events" className="animate-scale-in delay-400">
             <Card className="hover-lift border-emerald-100 hover:border-emerald-200 transition-all duration-300 hover:shadow-xl hover:shadow-emerald-100/50 group">
               <CardHeader className="pb-4">
@@ -236,6 +241,7 @@ export default function DashboardPage() {
               </CardHeader>
             </Card>
           </Link>
+          )}
 
           <Link href="/dashboard/donation-history" className="animate-scale-in delay-500">
             <Card className="hover-lift border-emerald-100 hover:border-emerald-200 transition-all duration-300 hover:shadow-xl hover:shadow-emerald-100/50 group">
@@ -245,9 +251,9 @@ export default function DashboardPage() {
                     <Users className="h-7 w-7 text-white" />
                   </div>
                 </div>
-                <CardTitle className="text-xl font-serif font-bold text-slate-800">Donation History</CardTitle>
+                <CardTitle className="text-xl font-serif font-bold text-slate-800">{isStudentOrNgo ? 'Collection History' : 'Donation History'}</CardTitle>
                 <CardDescription className="text-slate-600 leading-relaxed">
-                  View your food donation records and impact
+                  {isStudentOrNgo ? 'See items you collected' : 'View your food donation records and impact'}
                 </CardDescription>
               </CardHeader>
             </Card>

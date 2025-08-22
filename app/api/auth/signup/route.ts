@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
       console.error("DB connection error in signup:", dbErr)
       return NextResponse.json({ message: 'Service unavailable: database not configured or unreachable (MONGODB_URI)' }, { status: 503 })
     }
-    const { name, email: rawEmail, password, userType, organization } = await request.json();
+  const { name, email: rawEmail, password, userType, organization, collegeName, canteenName, hostelName } = await request.json();
     const email = typeof rawEmail === 'string' ? rawEmail.trim().toLowerCase() : rawEmail
     const validateEmail = (e: string) => {
       return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)
@@ -28,13 +28,17 @@ export async function POST(request: NextRequest) {
     }
     const hashedPassword = await bcrypt.hash(password, 10)
 
-    const newUser: User = {
+    const newUser: any = {
       id: Date.now().toString(),
       name,
       email,
       password: hashedPassword,
-      role: userType,
+      role: userType, // keep for compatibility
+      userType,       // primary field used across UI
       organization,
+      collegeName: collegeName || null,
+      canteenName: canteenName || null,
+      hostelName: hostelName || null,
       createdAt: new Date().toISOString(),
     };
     await db.collection("users").insertOne(newUser);

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { Plus, Search, BarChart3, Calendar, History, Menu, X, Home, QrCode } from "lucide-react"
@@ -74,7 +74,15 @@ const navigationItems = [
 export function Sidebar({ className }: SidebarProps) {
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [isMobileOpen, setIsMobileOpen] = useState(false)
+  const [user, setUser] = useState<any>(null)
   const pathname = usePathname()
+
+  useEffect(() => {
+    try {
+      const raw = typeof window !== 'undefined' ? localStorage.getItem('user') : null
+      if (raw) setUser(JSON.parse(raw))
+    } catch {}
+  }, [])
 
   return (
     <>
@@ -136,13 +144,29 @@ export function Sidebar({ className }: SidebarProps) {
 
           {/* Navigation */}
           <nav className="flex-1 p-4 space-y-2">
-            {navigationItems.map((item, index) => {
+            {navigationItems
+              .filter((item) => {
+                const role = user?.userType || user?.role
+                const isStudentOrNgo = role === 'student' || role === 'ngo'
+                // Hide Events for all roles except admin/event organizer
+                if (item.href === '/dashboard/events' && role !== 'admin' && role !== 'event') return false
+                // Additionally, hide Scan QR and List Food create for Student/NGO
+                if (isStudentOrNgo) {
+                  if (item.href === '/scan') return false
+                  if (item.href === '/dashboard/food-listings/create') return false
+                }
+                return true
+              })
+              .map((item, index) => {
               const isActive = pathname === item.href
               const Icon = item.icon
+              const role = user?.userType || user?.role
+              const isStudentOrNgo = role === 'student' || role === 'ngo'
+              const label = isStudentOrNgo && item.href === '/dashboard/donation-history' ? 'Collection History' : item.name
 
               return (
                 <Link
-                  key={item.name}
+                  key={`${item.name}-${index}`}
                   href={item.href}
                   onClick={() => setIsMobileOpen(false)}
                   className={cn(
@@ -164,7 +188,7 @@ export function Sidebar({ className }: SidebarProps) {
                     <Icon className="h-5 w-5" />
                   </div>
 
-                  {!isCollapsed && <span className="font-medium text-sm animate-fade-in">{item.name}</span>}
+                  {!isCollapsed && <span className="font-medium text-sm animate-fade-in">{label}</span>}
 
                   {/* Active Indicator */}
                   {isActive && <div className="absolute right-2 w-2 h-2 bg-current rounded-full animate-pulse" />}

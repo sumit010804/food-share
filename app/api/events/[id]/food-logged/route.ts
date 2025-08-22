@@ -8,6 +8,21 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     const db = await getDatabase()
     const body = await request.json().catch(() => ({}))
 
+    // Authorization: only admin or event organizer can mark food as logged
+    try {
+      const orClauses: any[] = []
+      if (body && body.actorEmail) orClauses.push({ email: body.actorEmail })
+      if (body && body.actorId) orClauses.push({ id: body.actorId })
+      const requester = await db.collection('users').findOne(orClauses.length > 0 ? { $or: orClauses } : { email: '__none__' })
+      const userType = requester?.userType || requester?.role || null
+      const allowed = userType && (userType === 'admin' || userType === 'event')
+      if (!allowed) {
+        return NextResponse.json({ message: 'You do not have permission to perform this action.' }, { status: 403 })
+      }
+    } catch (e) {
+      return NextResponse.json({ message: 'Unauthorized' }, { status: 403 })
+    }
+
     // Find event by id or _id
     const queries: any[] = [{ id: eventId }]
     if (/^[0-9a-fA-F]{24}$/.test(eventId)) {

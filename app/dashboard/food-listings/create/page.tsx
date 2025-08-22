@@ -61,6 +61,17 @@ export default function CreateFoodListingPage() {
     }
   }, [router])
 
+  const canListFood = user && (user.userType === 'canteen' || user.userType === 'hostel' || user.userType === 'admin')
+  if (user && !canListFood) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="p-6 border rounded-lg bg-white text-slate-700">
+          You don’t have permission to create listings. Please browse available food in Food Listings.
+        </div>
+      </div>
+    )
+  }
+
   const handleInputChange = (field: string, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }))
   }

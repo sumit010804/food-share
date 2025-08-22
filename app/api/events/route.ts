@@ -49,6 +49,25 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const data = await request.json()
+    const db = await getDatabase()
+
+    // Enforce role-based permission: only admin or event organizer can create events
+    try {
+      const requester = await db.collection('users').findOne({
+        $or: [
+          { email: data.organizerEmail },
+          { id: data.organizerId },
+          { name: data.organizer },
+        ].filter(Boolean)
+      })
+      const userType = requester?.userType || requester?.role || null
+      const allowed = userType && (userType === 'admin' || userType === 'event')
+      if (!allowed) {
+        return NextResponse.json({ message: 'You do not have permission to create events.' }, { status: 403 })
+      }
+    } catch (e) {
+      return NextResponse.json({ message: 'Unauthorized to create events.' }, { status: 403 })
+    }
 
     // We compute expected surplus in servings first (percentage of attendees),
     // then convert to kilograms using a per-serving weight heuristic.
@@ -86,7 +105,7 @@ export async function POST(request: NextRequest) {
 
     expectedSurplusKg = Math.round((expectedServings * KG_PER_SERVING) * 100) / 100
 
-    const db = await getDatabase()
+  // db already initialized above
 
   const newEvent: any = {
       title: data.title,

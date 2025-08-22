@@ -118,10 +118,21 @@ export function PostEventFoodDialog({
 
         // Mark event as food logged and attach actual surplus kg if available
         try {
+          let actorEmail: string | null = null
+          let actorId: string | null = null
+          try {
+            const raw = localStorage.getItem('user')
+            if (raw) {
+              const u = JSON.parse(raw)
+              actorEmail = u?.email || null
+              actorId = u?.id || u?._id || null
+            }
+          } catch {}
+
           await fetch(`/api/events/${currentEvent.id}/food-logged`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ actualSurplusKg: estimatedKg }),
+            body: JSON.stringify({ actualSurplusKg: estimatedKg, actorEmail, actorId }),
           })
         } catch (e) {
           console.error('Failed to mark event as food logged with actual kg', e)

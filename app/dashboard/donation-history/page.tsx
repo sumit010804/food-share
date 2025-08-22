@@ -82,6 +82,7 @@ export default function DonationHistoryPage() {
   const [recipientFilter, setRecipientFilter] = useState("all")
   const [activeTab, setActiveTab] = useState("donations")
   const router = useRouter()
+  const canListFood = user && (user.userType === 'canteen' || user.userType === 'hostel' || user.userType === 'admin')
 
   // Helper: dedupe collections by a canonical listing key; prefer DB-backed entries (with raw)
   const dedupeCollections = (items: any[]) => {
@@ -600,7 +601,7 @@ export default function DonationHistoryPage() {
         <div className="mb-8 animate-slide-up">
           <div className="flex items-center gap-3 mb-4">
             <History className="h-8 w-8 text-emerald-600" />
-            <h1 className="text-4xl font-serif font-black text-slate-800">Donation History</h1>
+            <h1 className="text-4xl font-serif font-black text-slate-800">{canListFood ? 'Donation History' : 'Collection History'}</h1>
           </div>
           <p className="text-xl text-slate-600 leading-relaxed">
             Track your food donations, collections, and see the impact you've made on campus sustainability.
@@ -738,19 +739,21 @@ export default function DonationHistoryPage() {
           </Card>
         </div>
 
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2 bg-emerald-50 border border-emerald-200">
-            <TabsTrigger
-              value="donations"
-              className="data-[state=active]:bg-emerald-600 data-[state=active]:text-white"
-            >
-              Donations ({filteredDonations.length})
-            </TabsTrigger>
+        <Tabs value={canListFood ? activeTab : 'collections'} onValueChange={setActiveTab} className="space-y-6">
+          <TabsList className={`grid w-full ${canListFood ? 'grid-cols-2' : 'grid-cols-1'} bg-emerald-50 border border-emerald-200`}>
+            {canListFood && (
+              <TabsTrigger
+                value="donations"
+                className="data-[state=active]:bg-emerald-600 data-[state=active]:text-white"
+              >
+                Donations ({filteredDonations.length})
+              </TabsTrigger>
+            )}
             <TabsTrigger
               value="collections"
               className="data-[state=active]:bg-emerald-600 data-[state=active]:text-white"
             >
-              Collections ({filteredCollections.length})
+              {canListFood ? 'Collections' : 'Collection History'} ({filteredCollections.length})
             </TabsTrigger>
           </TabsList>
 
@@ -975,6 +978,12 @@ export default function DonationHistoryPage() {
 
                           <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4 text-sm text-slate-600 mb-4">
                             <div className="flex items-center gap-2">
+                              <Package className="h-4 w-4 text-slate-400" />
+                              <span>
+                                <strong>Food:</strong> {collection.listingTitle || '—'}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2">
                               <User className="h-4 w-4 text-slate-400" />
                               <span>
                                 <strong>Donated by:</strong> {collection.donatedBy}
@@ -988,7 +997,9 @@ export default function DonationHistoryPage() {
                             </div>
                             <div className="flex items-center gap-2">
                               <MapPin className="h-4 w-4 text-slate-400" />
-                              <span>{collection.location}</span>
+                              <span>
+                                <strong>Pickup:</strong> {collection.location || '—'}
+                              </span>
                             </div>
                             <div className="flex items-center gap-2">
                               <Clock className="h-4 w-4 text-slate-400" />

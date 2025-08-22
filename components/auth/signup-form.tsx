@@ -18,7 +18,10 @@ export function SignupForm() {
     password: "",
     confirmPassword: "",
     userType: "",
-    organization: "",
+  organization: "",
+  collegeName: "",
+  canteenName: "",
+  hostelName: "",
   })
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
@@ -48,6 +51,29 @@ export function SignupForm() {
       return
     }
 
+    if (!formData.userType) {
+      setError("Please select your role")
+      setIsLoading(false)
+      return
+    }
+
+    // Role-specific required fields
+    if (formData.userType === 'student' && !formData.collegeName.trim()) {
+      setError("Please enter your college name")
+      setIsLoading(false)
+      return
+    }
+    if (formData.userType === 'canteen' && !formData.canteenName.trim()) {
+      setError("Please enter your canteen name")
+      setIsLoading(false)
+      return
+    }
+    if (formData.userType === 'hostel' && !formData.hostelName.trim()) {
+      setError("Please enter your hostel name")
+      setIsLoading(false)
+      return
+    }
+
     try {
       const response = await fetch("/api/auth/signup", {
         method: "POST",
@@ -60,6 +86,9 @@ export function SignupForm() {
           password: formData.password,
           userType: formData.userType,
           organization: formData.organization,
+          collegeName: formData.collegeName || undefined,
+          canteenName: formData.canteenName || undefined,
+          hostelName: formData.hostelName || undefined,
         }),
       })
 
@@ -92,10 +121,29 @@ export function SignupForm() {
           </Alert>
         )}
 
+        {/* Role/User Type Field - always first */}
+        <div className="space-y-2 sm:space-y-3 animate-slide-up">
+          <Label htmlFor="userType" className="text-slate-700 font-medium text-sm sm:text-base">
+            Select your role
+          </Label>
+          <Select value={formData.userType} onValueChange={(value) => handleInputChange("userType", value)}>
+            <SelectTrigger className="h-12 sm:h-14 border-2 border-slate-200 hover:border-emerald-200 focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100 transition-all duration-300 text-sm sm:text-base">
+              <SelectValue placeholder="Choose role" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="student">Student</SelectItem>
+              <SelectItem value="ngo">NGO</SelectItem>
+              <SelectItem value="canteen">Canteen Member</SelectItem>
+              <SelectItem value="hostel">Hostel Manager</SelectItem>
+              <SelectItem value="admin">Admin</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
         {/* Name Field */}
         <div className="space-y-2 sm:space-y-3 animate-slide-up delay-100">
           <Label htmlFor="name" className="text-slate-700 font-medium text-sm sm:text-base">
-            Full Name
+            {formData.userType === 'canteen' || formData.userType === 'hostel' ? 'Contact Name' : 'Full Name'}
           </Label>
           <div className="relative group">
             <User
@@ -106,7 +154,7 @@ export function SignupForm() {
             <Input
               id="name"
               type="text"
-              placeholder="Enter your full name"
+              placeholder={formData.userType === 'canteen' || formData.userType === 'hostel' ? 'Enter contact/manager name' : 'Enter your full name'}
               value={formData.name}
               onChange={(e) => handleInputChange("name", e.target.value)}
               onFocus={() => setFocusedField("name")}
@@ -150,54 +198,178 @@ export function SignupForm() {
           </div>
         </div>
 
-        {/* User Type Field */}
-        <div className="space-y-2 sm:space-y-3 animate-slide-up delay-300">
-          <Label htmlFor="userType" className="text-slate-700 font-medium text-sm sm:text-base">
-            User Type
-          </Label>
-          <Select value={formData.userType} onValueChange={(value) => handleInputChange("userType", value)}>
-            <SelectTrigger className="h-12 sm:h-14 border-2 border-slate-200 hover:border-emerald-200 focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100 transition-all duration-300 text-sm sm:text-base">
-              <SelectValue placeholder="Select your role" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="student">Student</SelectItem>
-              <SelectItem value="staff">Staff Member</SelectItem>
-              <SelectItem value="canteen">Canteen Manager</SelectItem>
-              <SelectItem value="hostel">Hostel Manager</SelectItem>
-              <SelectItem value="event">Event Organizer</SelectItem>
-              <SelectItem value="ngo">NGO Representative</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        {/* Organization Field */}
-        <div className="space-y-2 sm:space-y-3 animate-slide-up delay-400">
-          <Label htmlFor="organization" className="text-slate-700 font-medium text-sm sm:text-base">
-            Organization/Department
-          </Label>
-          <div className="relative group">
-            <Building
-              className={`absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 sm:h-5 sm:w-5 transition-all duration-300 ${
-                focusedField === "organization" ? "text-emerald-600 scale-110" : "text-slate-400"
-              }`}
-            />
-            <Input
-              id="organization"
-              type="text"
-              placeholder="Enter your organization or department"
-              value={formData.organization}
-              onChange={(e) => handleInputChange("organization", e.target.value)}
-              onFocus={() => setFocusedField("organization")}
-              onBlur={() => setFocusedField(null)}
-              className={`pl-10 sm:pl-12 h-12 sm:h-14 transition-all duration-300 border-2 text-sm sm:text-base ${
-                focusedField === "organization"
-                  ? "border-emerald-300 shadow-lg shadow-emerald-100 scale-[1.02]"
-                  : "border-slate-200 hover:border-emerald-200"
-              } focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100`}
-              required
-            />
+        {/* Role-specific organization fields */}
+        {formData.userType === 'student' && (
+          <div className="space-y-2 sm:space-y-3 animate-slide-up delay-200">
+            <Label htmlFor="collegeName" className="text-slate-700 font-medium text-sm sm:text-base">
+              College Name
+            </Label>
+            <div className="relative group">
+              <Building
+                className={`absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 sm:h-5 sm:w-5 transition-all duration-300 ${
+                  focusedField === "collegeName" ? "text-emerald-600 scale-110" : "text-slate-400"
+                }`}
+              />
+              <Input
+                id="collegeName"
+                type="text"
+                placeholder="Enter your college name"
+                value={formData.collegeName}
+                onChange={(e) => handleInputChange("collegeName", e.target.value)}
+                onFocus={() => setFocusedField("collegeName")}
+                onBlur={() => setFocusedField(null)}
+                className={`pl-10 sm:pl-12 h-12 sm:h-14 transition-all duration-300 border-2 text-sm sm:text-base ${
+                  focusedField === "collegeName"
+                    ? "border-emerald-300 shadow-lg shadow-emerald-100 scale-[1.02]"
+                    : "border-slate-200 hover:border-emerald-200"
+                } focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100`}
+                required
+              />
+            </div>
           </div>
-        </div>
+        )}
+
+        {formData.userType === 'canteen' && (
+          <div className="space-y-2 sm:space-y-3 animate-slide-up delay-200">
+            <Label htmlFor="canteenName" className="text-slate-700 font-medium text-sm sm:text-base">
+              Canteen Name
+            </Label>
+            <div className="relative group">
+              <Building
+                className={`absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 sm:h-5 sm:w-5 transition-all duration-300 ${
+                  focusedField === "canteenName" ? "text-emerald-600 scale-110" : "text-slate-400"
+                }`}
+              />
+              <Input
+                id="canteenName"
+                type="text"
+                placeholder="Enter canteen name"
+                value={formData.canteenName}
+                onChange={(e) => handleInputChange("canteenName", e.target.value)}
+                onFocus={() => setFocusedField("canteenName")}
+                onBlur={() => setFocusedField(null)}
+                className={`pl-10 sm:pl-12 h-12 sm:h-14 transition-all duration-300 border-2 text-sm sm:text-base ${
+                  focusedField === "canteenName"
+                    ? "border-emerald-300 shadow-lg shadow-emerald-100 scale-[1.02]"
+                    : "border-slate-200 hover:border-emerald-200"
+                } focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100`}
+                required
+              />
+            </div>
+            <div className="space-y-2 sm:space-y-3">
+              <Label htmlFor="organization" className="text-slate-700 font-medium text-sm sm:text-base">
+                Organization (optional)
+              </Label>
+              <div className="relative group">
+                <Building
+                  className={`absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 sm:h-5 sm:w-5 transition-all duration-300 ${
+                    focusedField === "organization" ? "text-emerald-600 scale-110" : "text-slate-400"
+                  }`}
+                />
+                <Input
+                  id="organization"
+                  type="text"
+                  placeholder="Enter organization name (if any)"
+                  value={formData.organization}
+                  onChange={(e) => handleInputChange("organization", e.target.value)}
+                  onFocus={() => setFocusedField("organization")}
+                  onBlur={() => setFocusedField(null)}
+                  className={`pl-10 sm:pl-12 h-12 sm:h-14 transition-all duration-300 border-2 text-sm sm:text-base ${
+                    focusedField === "organization"
+                      ? "border-emerald-300 shadow-lg shadow-emerald-100 scale-[1.02]"
+                      : "border-slate-200 hover:border-emerald-200"
+                  } focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100`}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {formData.userType === 'hostel' && (
+          <div className="space-y-2 sm:space-y-3 animate-slide-up delay-200">
+            <Label htmlFor="hostelName" className="text-slate-700 font-medium text-sm sm:text-base">
+              Hostel Name
+            </Label>
+            <div className="relative group">
+              <Building
+                className={`absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 sm:h-5 sm:w-5 transition-all duration-300 ${
+                  focusedField === "hostelName" ? "text-emerald-600 scale-110" : "text-slate-400"
+                }`}
+              />
+              <Input
+                id="hostelName"
+                type="text"
+                placeholder="Enter hostel name"
+                value={formData.hostelName}
+                onChange={(e) => handleInputChange("hostelName", e.target.value)}
+                onFocus={() => setFocusedField("hostelName")}
+                onBlur={() => setFocusedField(null)}
+                className={`pl-10 sm:pl-12 h-12 sm:h-14 transition-all duration-300 border-2 text-sm sm:text-base ${
+                  focusedField === "hostelName"
+                    ? "border-emerald-300 shadow-lg shadow-emerald-100 scale-[1.02]"
+                    : "border-slate-200 hover:border-emerald-200"
+                } focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100`}
+                required
+              />
+            </div>
+            <div className="space-y-2 sm:space-y-3">
+              <Label htmlFor="organization" className="text-slate-700 font-medium text-sm sm:text-base">
+                Organization (optional)
+              </Label>
+              <div className="relative group">
+                <Building
+                  className={`absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 sm:h-5 sm:w-5 transition-all duration-300 ${
+                    focusedField === "organization" ? "text-emerald-600 scale-110" : "text-slate-400"
+                  }`}
+                />
+                <Input
+                  id="organization"
+                  type="text"
+                  placeholder="Enter organization name (if any)"
+                  value={formData.organization}
+                  onChange={(e) => handleInputChange("organization", e.target.value)}
+                  onFocus={() => setFocusedField("organization")}
+                  onBlur={() => setFocusedField(null)}
+                  className={`pl-10 sm:pl-12 h-12 sm:h-14 transition-all duration-300 border-2 text-sm sm:text-base ${
+                    focusedField === "organization"
+                      ? "border-emerald-300 shadow-lg shadow-emerald-100 scale-[1.02]"
+                      : "border-slate-200 hover:border-emerald-200"
+                  } focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100`}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* NGO/Admin optional organization */}
+        {(formData.userType === 'ngo' || formData.userType === 'admin') && (
+          <div className="space-y-2 sm:space-y-3 animate-slide-up delay-200">
+            <Label htmlFor="organization" className="text-slate-700 font-medium text-sm sm:text-base">
+              Organization (optional)
+            </Label>
+            <div className="relative group">
+              <Building
+                className={`absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 sm:h-5 sm:w-5 transition-all duration-300 ${
+                  focusedField === "organization" ? "text-emerald-600 scale-110" : "text-slate-400"
+                }`}
+              />
+              <Input
+                id="organization"
+                type="text"
+                placeholder="Enter organization name (if any)"
+                value={formData.organization}
+                onChange={(e) => handleInputChange("organization", e.target.value)}
+                onFocus={() => setFocusedField("organization")}
+                onBlur={() => setFocusedField(null)}
+                className={`pl-10 sm:pl-12 h-12 sm:h-14 transition-all duration-300 border-2 text-sm sm:text-base ${
+                  focusedField === "organization"
+                    ? "border-emerald-300 shadow-lg shadow-emerald-100 scale-[1.02]"
+                    : "border-slate-200 hover:border-emerald-200"
+                } focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100`}
+              />
+            </div>
+          </div>
+        )}
 
         {/* Password Fields */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">

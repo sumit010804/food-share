@@ -95,6 +95,11 @@ export function CreateEventDialog({ open, onOpenChange, onEventCreated, user }: 
     setError("")
 
     try {
+    // client-side guard: only admin/event organizer can create events
+    if (!(user && (user.userType === 'admin' || user.userType === 'event'))) {
+      setError('You do not have permission to create events.')
+      return
+    }
     const attendeesNum = Number.parseInt(formData.expectedAttendees) || 0
     const prediction = computePrediction(formData.eventType, attendeesNum)
       const response = await fetch("/api/events", {
@@ -285,7 +290,7 @@ export function CreateEventDialog({ open, onOpenChange, onEventCreated, user }: 
           </div>
 
           <div className="flex gap-4 pt-4">
-            <Button type="submit" className="flex-1 bg-cyan-800 hover:bg-cyan-900" disabled={isLoading}>
+            <Button type="submit" className="flex-1 bg-cyan-800 hover:bg-cyan-900" disabled={isLoading || !(user && (user.userType === 'admin' || user.userType === 'event'))}>
               {isLoading ? "Creating..." : "Create Event"}
             </Button>
             <Button

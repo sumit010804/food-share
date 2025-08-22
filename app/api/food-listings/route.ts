@@ -114,6 +114,24 @@ export async function POST(request: NextRequest) {
   try {
     const db = await getDatabase();
     const data = await request.json();
+    // Enforce role-based permission: only canteen/hostel/admin can create listings
+    try {
+      const requester = await db.collection('users').findOne({
+        $or: [
+          { email: data.email },
+          { name: data.createdBy },
+          { id: data.donorId },
+        ].filter(Boolean)
+      })
+      const userType = requester?.userType || requester?.role || null
+      const allowed = userType && (userType === 'canteen' || userType === 'hostel' || userType === 'admin')
+      if (!allowed) {
+        return NextResponse.json({ message: 'You do not have permission to create listings.' }, { status: 403 })
+      }
+    } catch (e) {
+      // If user lookup fails, default to denying to be safe
+      return NextResponse.json({ message: 'Unauthorized to create listings.' }, { status: 403 })
+    }
     // determine lister email: prefer explicit field, otherwise try to
     // resolve from users collection using donorId or createdBy/name
     let createdByEmail: string | null = data.email || null

@@ -69,6 +69,8 @@ export default function FoodListingsPage() {
     }
   }, [router])
 
+  const canListFood = !!(user && (user.userType === 'canteen' || user.userType === 'hostel' || (user as any).userType === 'admin' || (user as any).role === 'admin'))
+
   const fetchListings = async () => {
     try {
       const response = await fetch("/api/food-listings")
@@ -87,6 +89,12 @@ export default function FoodListingsPage() {
       const listerEmail = (listing as any).createdByEmail || (listing as any).provider?.email || (listing as any).email || ''
       if (listerEmail && String(listerEmail) === String(currentUserEmail)) {
         alert("You cannot reserve your own listing.")
+        return
+      }
+
+      // If user is a lister role (canteen/hostel/admin), they should not reserve; they list only
+      if (canListFood) {
+        alert('Lister accounts cannot reserve items. Use a Student or NGO account to collect.')
         return
       }
 
