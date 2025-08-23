@@ -24,6 +24,9 @@ export default function TicketScanner({ scannerId, expectedListingId: expectedFr
   const [torchAvailable, setTorchAvailable] = useState(false)
   const [torchOn, setTorchOn] = useState(false)
   const zxingRef = useRef<{ reader: any, controls: any } | null>(null)
+  const [cameras, setCameras] = useState<Array<{ deviceId: string, label: string }>>([])
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string | undefined>(undefined)
+  const [zoomOn, setZoomOn] = useState(false)
   // For E2E: allow injecting a QR image data URL for decoding without camera
   const startTestImageLoop = (dataUrl: string) => {
     if (!jsQRRef.current) return false
@@ -69,7 +72,85 @@ export default function TicketScanner({ scannerId, expectedListingId: expectedFr
   const startCamera = async () => {
     setError(null)
     try {
-      // Ensure jsQR is loaded before starting the scan loops
+      // Try ZXing first to avoid running multiple engines simultaneously
+      try {
+        const mod: any = await import('@zxing/browser')
+        const Reader = mod?.BrowserQRCodeReader || mod?.BrowserMultiFormatReader
+        if (Reader && videoRef.current) {
+          const reader = new Reader()
+          // Pick a back/environment camera if available
+          let deviceId: string | undefined = selectedDeviceId
+          try {
+            const list = await (mod.BrowserQRCodeReader?.listVideoInputDevices?.() || mod.BrowserMultiFormatReader?.listVideoInputDevices?.())
+            if (Array.isArray(list) && list.length) {
+              const mapped = list.map((d: any) => ({ deviceId: d.deviceId, label: d.label || 'Camera' }))
+              setCameras(mapped)
+              if (!deviceId) {
+                const back = list.find((d: any) => /back|environment/i.test(d.label))
+                deviceId = (back || list[list.length - 1]).deviceId
+              }
+            }
+          } catch {}
+          const controls = await reader.decodeFromVideoDevice(deviceId, videoRef.current as HTMLVideoElement, (result: any) => {
+            if (!result || decodingRef.current || stopFlagRef.current || !isScanning) return
+            try {
+              const text = typeof result.getText === 'function' ? result.getText() : (result.text || String(result))
+              decodingRef.current = true
+              stopCamera()
+              handleToken(String(text))
+            } catch {}
+          })
+          zxingRef.current = { reader, controls }
+          // wait for metadata then mark video ready
+          const v = videoRef.current
+          if (v) {
+            try { v.setAttribute('playsinline', 'true') } catch {}
+            try { v.muted = true } catch {}
+            await new Promise<void>((resolve) => {
+              const onLoaded = () => resolve()
+              if (v.readyState >= 1) onLoaded(); else v.addEventListener('loadedmetadata', onLoaded, { once: true })
+            })
+            setVideoReady(true)
+            // detect torch availability from the active stream
+            try {
+              const s = (v as any).srcObject as MediaStream | null
+              if (s) {
+                setStream(s)
+                const track = s.getVideoTracks()[0]
+                const caps: any = (track && typeof track.getCapabilities === 'function') ? track.getCapabilities() : null
+                setTorchAvailable(!!(caps && caps.torch))
+                // Attempt a mild zoom to improve focus if supported
+                try {
+                  if (caps && typeof (track as any).applyConstraints === 'function' && 'zoom' in caps) {
+                    await (track as any).applyConstraints({ advanced: [{ zoom: 2 }] })
+                    setZoomOn(true)
+                  }
+                } catch {}
+              }
+            } catch {}
+          }
+          stopFlagRef.current = false
+          decodingRef.current = false
+          setIsScanning(true)
+          // Watchdog: if ZXing hasn't decoded within 7s, kick off alternate decoders
+          setTimeout(() => {
+            if (!decodingRef.current && !stopFlagRef.current) {
+              scanLoop()
+            }
+          }, 7000)
+          // E2E: allow decoding a provided image
+          try {
+            const testImg = (window as any).__TEST_QR_IMAGE as string | undefined
+            if (testImg) startTestImageLoop(testImg)
+          } catch {}
+          return
+        }
+      } catch (e) {
+        console.warn('ZXing initialization failed, falling back to getUserMedia + BarcodeDetector/jsQR', e)
+      }
+
+      // Fallback: manual getUserMedia + BarcodeDetector/jsQR
+      // Ensure jsQR is available for the final fallback path
       if (!jsQRRef.current) {
         try {
           const mod: any = await import('jsqr')
@@ -78,7 +159,6 @@ export default function TicketScanner({ scannerId, expectedListingId: expectedFr
           console.warn('Failed to load jsQR, relying on BarcodeDetector only', e)
         }
       }
-
       const s = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
         audio: false,
@@ -94,38 +174,18 @@ export default function TicketScanner({ scannerId, expectedListingId: expectedFr
         v.srcObject = s
         try { v.setAttribute('playsinline', 'true') } catch {}
         try { v.muted = true } catch {}
-        // wait for metadata then play to ensure inline rendering
         await new Promise<void>((resolve) => {
           const onLoaded = () => { v.play().catch(() => {}).finally(() => resolve()) }
           if (v.readyState >= 1) onLoaded(); else v.addEventListener('loadedmetadata', onLoaded, { once: true })
         })
         setVideoReady(true)
       }
-  stopFlagRef.current = false
-  setIsScanning(true)
-  // kick off decode loops in parallel
-  scanLoop()
-      // Start ZXing fallback if available
-      try {
-        const startZXing = async () => {
-          const mod: any = await import('@zxing/browser')
-          const Reader = mod?.BrowserMultiFormatReader || mod?.BrowserQRCodeReader
-          if (!Reader) return
-          const reader = new Reader()
-          const controls = await reader.decodeFromVideoDevice(undefined, videoRef.current as HTMLVideoElement, (result: any) => {
-            if (!result || decodingRef.current || stopFlagRef.current || !isScanning) return
-            try {
-              const text = typeof result.getText === 'function' ? result.getText() : (result.text || String(result))
-              decodingRef.current = true
-              stopCamera()
-              handleToken(String(text))
-            } catch {}
-          })
-          zxingRef.current = { reader, controls }
-        }
-        startZXing()
-      } catch {}
-      // E2E: if a test QR image is injected, start decoding from it as well
+      stopFlagRef.current = false
+      decodingRef.current = false
+      setIsScanning(true)
+      // kick off BD/jsQR decode loops only for fallback
+      scanLoop()
+      // E2E: test image loop
       try {
         const testImg = (window as any).__TEST_QR_IMAGE as string | undefined
         if (testImg) startTestImageLoop(testImg)
@@ -330,6 +390,23 @@ export default function TicketScanner({ scannerId, expectedListingId: expectedFr
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
+              {cameras.length > 1 && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Camera</label>
+                    <select
+                      className="w-full p-2 border rounded text-xs"
+                      value={selectedDeviceId || ''}
+                      onChange={(e) => setSelectedDeviceId(e.target.value || undefined)}
+                    >
+                      <option value="">Auto (prefer back)</option>
+                      {cameras.map((c) => (
+                        <option key={c.deviceId} value={c.deviceId}>{c.label || 'Camera'}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
               <div className="w-full rounded overflow-hidden relative">
                 <video
                   ref={videoRef}
@@ -374,6 +451,35 @@ export default function TicketScanner({ scannerId, expectedListingId: expectedFr
                     }}
                   >
                     {torchOn ? 'Torch off' : 'Torch on'}
+                  </Button>
+                )}
+                {isScanning && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      if (!decodingRef.current) scanLoop()
+                    }}
+                  >
+                    Alternate decoder
+                  </Button>
+                )}
+                {isScanning && stream && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={async () => {
+                      try {
+                        const track = stream.getVideoTracks()[0]
+                        const caps: any = track?.getCapabilities?.()
+                        if (!caps || !('zoom' in caps)) return
+                        const next = !zoomOn
+                        await (track as any).applyConstraints({ advanced: [{ zoom: next ? 2 : 1 }] })
+                        setZoomOn(next)
+                      } catch {}
+                    }}
+                  >
+                    {zoomOn ? 'Zoom 1x' : 'Zoom 2x'}
                   </Button>
                 )}
               </div>
