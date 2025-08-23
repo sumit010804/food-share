@@ -68,6 +68,8 @@ export async function GET() {
         description: l.description,
         foodType: l.foodType,
         quantity: l.quantity,
+  imageUrl: l.imageUrl || null,
+  freshnessLabel: l.freshnessLabel || null,
         unit: l.unit || l.unitOfMeasure || null,
         location: l.location,
         // expose coordinates if present
@@ -172,6 +174,8 @@ export async function POST(request: NextRequest) {
       foodType: data.foodType,
       quantity: data.quantity,
       location: data.location,
+    imageUrl: data.imageUrl || null,
+    freshnessLabel: data.freshnessLabel || null,
       // store coordinates if provided and valid numbers
       ...(Number.isFinite(Number(data.lat)) && Number.isFinite(Number(data.lng))
         ? { lat: Number(data.lat), lng: Number(data.lng) }

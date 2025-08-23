@@ -485,6 +485,17 @@ export default function FoodListingsPage() {
 
               <CardContent className="space-y-3 p-4 sm:p-6 pt-0">
                 <div className="space-y-2">
+                  {((listing as any).imageUrl || (listing as any).freshnessLabel) && (
+                    <div className="flex items-center gap-3 mb-2">
+                      { (listing as any).imageUrl && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={(listing as any).imageUrl} alt={listing.title} className="h-16 w-16 rounded-md object-cover border" />
+                      )}
+                      { (listing as any).freshnessLabel && (
+                        <Badge className="bg-emerald-100 text-emerald-800">Freshness: {(listing as any).freshnessLabel}</Badge>
+                      )}
+                    </div>
+                  )}
                   <div className="flex items-center gap-2 text-sm text-slate-600">
                     <MapPin className="h-4 w-4 flex-shrink-0" />
                     <span className="truncate">{listing.location}</span>

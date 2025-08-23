@@ -45,6 +45,10 @@ export default function CreateFoodListingPage() {
   lat: "",
   lng: "",
   })
+  const [imageFile, setImageFile] = useState<File | null>(null)
+  const [imagePreview, setImagePreview] = useState<string | null>(null)
+  const [freshnessLabel, setFreshnessLabel] = useState<string | null>(null)
+  const [freshnessProbs, setFreshnessProbs] = useState<Record<string, number> | null>(null)
 
   useEffect(() => {
     const userData = localStorage.getItem("user")
@@ -94,6 +98,29 @@ export default function CreateFoodListingPage() {
     setSuccess("")
 
     try {
+      // If user attached an image, send to freshness predictor API first
+      let uploadedImageUrl: string | undefined
+      let detectedFreshness: string | undefined
+      if (imageFile) {
+        try {
+          const fd = new FormData()
+          fd.append('image', imageFile)
+          const fresRes = await fetch('/api/freshness', { method: 'POST', body: fd })
+          const fresJson = await fresRes.json().catch(() => ({}))
+          if (fresRes.ok) {
+            uploadedImageUrl = fresJson.imageUrl
+            detectedFreshness = fresJson.label
+            setFreshnessLabel(fresJson.label || null)
+            setFreshnessProbs(fresJson.probabilities || null)
+          } else {
+            setFreshnessLabel(fresJson.label || 'Unknown')
+          }
+        } catch (e) {
+          // Non-fatal
+          setFreshnessLabel('Unknown')
+        }
+      }
+
       const response = await fetch("/api/food-listings", {
         method: "POST",
         headers: {
@@ -106,6 +133,8 @@ export default function CreateFoodListingPage() {
           organization: user?.organization,
           lat: formData.lat ? Number(formData.lat) : undefined,
           lng: formData.lng ? Number(formData.lng) : undefined,
+          imageUrl: uploadedImageUrl,
+          freshnessLabel: detectedFreshness,
         }),
       })
 
@@ -383,6 +412,36 @@ export default function CreateFoodListingPage() {
                     </Badge>
                   ))}
                 </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="photo">Food Photo (optional)</Label>
+                <Input
+                  id="photo"
+                  type="file"
+                  accept="image/*;capture=camera"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0] || null
+                    setImageFile(f)
+                    setFreshnessLabel(null)
+                    setFreshnessProbs(null)
+                    if (f) {
+                      const url = URL.createObjectURL(f)
+                      setImagePreview(url)
+                    } else {
+                      setImagePreview(null)
+                    }
+                  }}
+                />
+                {imagePreview && (
+                  <div className="mt-2 flex items-center gap-3">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={imagePreview} alt="preview" className="h-24 w-24 object-cover rounded-md border" />
+                    {freshnessLabel && (
+                      <Badge className="bg-emerald-100 text-emerald-800">Freshness: {freshnessLabel}</Badge>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="space-y-2">
