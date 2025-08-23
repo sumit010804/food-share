@@ -38,3 +38,6 @@ data/*.log*
 data/mongod.log*
 data/**/WiredTiger*
 data/**/journal/
+
+# uploaded images
+/public/uploads/
