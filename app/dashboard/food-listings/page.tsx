@@ -495,139 +495,151 @@ export default function FoodListingsPage() {
                 </div>
               </CardHeader>
 
-              <CardContent className="space-y-3 p-4 sm:p-6 pt-0">
-                <div className="space-y-2">
-                  {((listing as any).imageUrl || (listing as any).freshnessLabel) && (
-                    <div className="flex items-center gap-3 mb-2">
-                      { (listing as any).imageUrl && (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={(listing as any).imageUrl} alt={listing.title} className="h-16 w-16 rounded-md object-cover border" />
-                      )}
-                      { (listing as any).freshnessLabel && (
-                        <Badge className="bg-emerald-100 text-emerald-800">Freshness: {(listing as any).freshnessLabel}</Badge>
+              <CardContent className="p-4 sm:p-6 pt-0">
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                  {/* Left: Image ~40% */}
+                  <div className="md:col-span-2">
+                    <div className="relative w-full h-40 sm:h-48 md:h-full overflow-hidden rounded-md border border-emerald-100">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={(listing as any).imageUrl || '/placeholder.jpg'}
+                        alt={listing.title}
+                        className="w-full h-full object-cover"
+                      />
+                      {(listing as any).freshnessLabel && (
+                        <div className="absolute top-2 left-2">
+                          <span className="inline-flex items-center rounded-md bg-emerald-600/90 text-white text-xs sm:text-sm md:text-base px-3 py-1.5 shadow-md">
+                            Freshness: {(listing as any).freshnessLabel}
+                          </span>
+                        </div>
                       )}
                     </div>
-                  )}
-                  <div className="flex items-center gap-2 text-sm text-slate-600">
-                    <MapPin className="h-4 w-4 flex-shrink-0" />
-                    <span className="truncate">{listing.location}</span>
                   </div>
 
-                  <div className="flex items-center gap-2 text-sm text-slate-600">
-                    <Users className="h-4 w-4 flex-shrink-0" />
-                    <span className="truncate">{listing.organization}</span>
-                  </div>
+                  {/* Right: Details ~60% */}
+                  <div className="md:col-span-3 flex flex-col">
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-sm text-slate-600">
+                        <MapPin className="h-4 w-4 flex-shrink-0" />
+                        <span className="truncate">{listing.location}</span>
+                      </div>
 
-                  <div className="flex items-center gap-2 text-sm text-slate-600">
-                    <Clock className="h-4 w-4 flex-shrink-0" />
-                    <span className="truncate">{getTimeRemaining(listing.availableUntil)}</span>
-                  </div>
+                      <div className="flex items-center gap-2 text-sm text-slate-600">
+                        <Users className="h-4 w-4 flex-shrink-0" />
+                        <span className="truncate">{listing.organization}</span>
+                      </div>
 
-                  <div className="flex items-center gap-2 text-sm">
-                    <AlertTriangle className="h-4 w-4 text-amber-500 flex-shrink-0" />
-                    <span className="text-slate-600 truncate">Safe for {listing.safetyHours} hours</span>
-                  </div>
-                </div>
+                      <div className="flex items-center gap-2 text-sm text-slate-600">
+                        <Clock className="h-4 w-4 flex-shrink-0" />
+                        <span className="truncate">{getTimeRemaining(listing.availableUntil)}</span>
+                      </div>
 
-                {listing.status === "collected" && listing.collectedBy && (
-                  <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200">
-                    <p className="text-sm text-emerald-800">
-                      <strong>Collected by:</strong> {listing.collectedBy}
-                    </p>
-                    {listing.collectedAt && (
-                      <p className="text-xs text-emerald-600 mt-1">{new Date(listing.collectedAt).toLocaleString()}</p>
+                      <div className="flex items-center gap-2 text-sm">
+                        <AlertTriangle className="h-4 w-4 text-amber-500 flex-shrink-0" />
+                        <span className="text-slate-600 truncate">Safe for {listing.safetyHours} hours</span>
+                      </div>
+                    </div>
+
+                    {listing.status === "collected" && listing.collectedBy && (
+                      <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200 mt-3">
+                        <p className="text-sm text-emerald-800">
+                          <strong>Collected by:</strong> {listing.collectedBy}
+                        </p>
+                        {listing.collectedAt && (
+                          <p className="text-xs text-emerald-600 mt-1">{new Date(listing.collectedAt).toLocaleString()}</p>
+                        )}
+                      </div>
                     )}
-                  </div>
-                )}
 
-                <div className="flex flex-wrap gap-1 mt-4">
-                  <Badge variant="secondary" className="text-xs font-medium">
-                    {listing.foodType}
-                  </Badge>
-                  <Badge variant="secondary" className="text-xs font-medium">
-                    {listing.quantity}
-                  </Badge>
-                    {typeof (listing as any).remainingQuantity === 'number' && (
-                      <Badge variant="outline" className="text-xs">
-                        Remaining: {(listing as any).remainingQuantity}
+                    <div className="flex flex-wrap gap-1 mt-4">
+                      <Badge variant="secondary" className="text-xs font-medium">
+                        {listing.foodType}
                       </Badge>
-                    )}
-                  {(Array.isArray(listing.tags) ? listing.tags : []).slice(0, 2).map((tag, index) => (
-                    <Badge key={index} variant="outline" className="text-xs">
-                      {tag}
-                    </Badge>
-                  ))}
-                  {Array.isArray(listing.tags) && listing.tags.length > 2 && (
-                    <Badge variant="outline" className="text-xs">
-                      +{listing.tags.length - 2}
-                    </Badge>
-                  )}
-                </div>
+                      <Badge variant="secondary" className="text-xs font-medium">
+                        {listing.quantity}
+                      </Badge>
+                      {typeof (listing as any).remainingQuantity === 'number' && (
+                        <Badge variant="outline" className="text-xs">
+                          Remaining: {(listing as any).remainingQuantity}
+                        </Badge>
+                      )}
+                      {(Array.isArray(listing.tags) ? listing.tags : []).slice(0, 2).map((tag, index) => (
+                        <Badge key={index} variant="outline" className="text-xs">
+                          {tag}
+                        </Badge>
+                      ))}
+                      {Array.isArray(listing.tags) && listing.tags.length > 2 && (
+                        <Badge variant="outline" className="text-xs">
+                          +{listing.tags.length - 2}
+                        </Badge>
+                      )}
+                    </div>
 
-                <div className="flex flex-col sm:flex-row gap-2 mt-6">
-                  {listing.status === "available" && !canListFood && String((listing as any).createdByEmail || '') !== String(user?.email || '') && (
-                    <Button
-                      size="sm"
-                      className="flex-1 gradient-primary text-white hover-lift shadow-lg hover:shadow-emerald-200 h-10 font-medium"
-                      onClick={() => handleReserve(listing)}
-                    >
-                      Reserve
-                    </Button>
-                  )}
+                    <div className="flex flex-col sm:flex-row gap-2 mt-6">
+                      {listing.status === "available" && !canListFood && String((listing as any).createdByEmail || '') !== String(user?.email || '') && (
+                        <Button
+                          size="sm"
+                          className="flex-1 gradient-primary text-white hover-lift shadow-lg hover:shadow-emerald-200 h-10 font-medium"
+                          onClick={() => handleReserve(listing)}
+                        >
+                          Reserve
+                        </Button>
+                      )}
 
-
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="flex-1 bg-transparent border-emerald-200 text-emerald-700 hover:bg-emerald-50 h-10 font-medium"
-                    onClick={() => {
-                      setSelectedListing(listing)
-                      setDialogOpen(true)
-                    }}
-                  >
-                    Details
-                  </Button>
-
-                  {(() => {
-                    const ownerId = String((listing as any).createdBy || (listing as any).providerId || (listing as any).donorId || '')
-                    const reserverId = String((listing as any).reservedBy || (listing as any).reservedById || '')
-                    const me = String((user as any)?.id || (user as any)?._id || '')
-                    const ownerEmail = String((listing as any).createdByEmail || (listing as any).provider?.email || '')
-                    const reserverEmail = String((listing as any).reservedByEmail || '')
-                    const myEmail = String(user?.email || '')
-                    // If partial reservations exist, allow chat when the current user is the owner or one of the reservations' by/byEmail
-                    const reservations = Array.isArray((listing as any).reservations) ? (listing as any).reservations as any[] : []
-                    const myReservation = reservations.find((r: any) => String(r.by) === me || (r.byEmail && String(r.byEmail) === myEmail))
-                    const hasActiveReservation = reservations.some((r: any) => (r?.status || 'reserved') !== 'collected')
-                    const canChat = (
-                      (
-                        ((listing as any).status === 'reserved') ||
-                        !!myReservation ||
-                        (me === ownerId && hasActiveReservation)
-                      ) && (
-                      me === ownerId ||
-                      me === reserverId ||
-                      !!myReservation ||
-                      // Fallback: some legacy listings store owner via email, not id
-                      (ownerEmail && myEmail && ownerEmail === myEmail) || (reserverEmail && myEmail && reserverEmail === myEmail)
-                    ))
-                    if (!canChat) return null
-        return (
                       <Button
                         size="sm"
-                        variant="secondary"
-                        className="flex-1 bg-emerald-600/10 text-emerald-700 hover:bg-emerald-600/20 h-10 font-medium border border-emerald-200"
+                        variant="outline"
+                        className="flex-1 bg-transparent border-emerald-200 text-emerald-700 hover:bg-emerald-50 h-10 font-medium"
                         onClick={() => {
-          const activeFirst = reservations.find((r: any) => (r?.status || 'reserved') !== 'collected')
-          const withRes = { ...(listing as any), __reservationId: myReservation?.id || (me === ownerId ? activeFirst?.id : undefined) }
-                          setChatListing(withRes as any)
-                          setChatOpen(true)
+                          setSelectedListing(listing)
+                          setDialogOpen(true)
                         }}
                       >
-                        Chat
+                        Details
                       </Button>
-                    )
-                  })()}
+
+                      {(() => {
+                        const ownerId = String((listing as any).createdBy || (listing as any).providerId || (listing as any).donorId || '')
+                        const reserverId = String((listing as any).reservedBy || (listing as any).reservedById || '')
+                        const me = String((user as any)?.id || (user as any)?._id || '')
+                        const ownerEmail = String((listing as any).createdByEmail || (listing as any).provider?.email || '')
+                        const reserverEmail = String((listing as any).reservedByEmail || '')
+                        const myEmail = String(user?.email || '')
+                        // If partial reservations exist, allow chat when the current user is the owner or one of the reservations' by/byEmail
+                        const reservations = Array.isArray((listing as any).reservations) ? ((listing as any).reservations as any[]) : []
+                        const myReservation = reservations.find((r: any) => String(r.by) === me || (r.byEmail && String(r.byEmail) === myEmail))
+                        const hasActiveReservation = reservations.some((r: any) => (r?.status || 'reserved') !== 'collected')
+                        const canChat = (
+                          (
+                            ((listing as any).status === 'reserved') ||
+                            !!myReservation ||
+                            (me === ownerId && hasActiveReservation)
+                          ) && (
+                          me === ownerId ||
+                          me === reserverId ||
+                          !!myReservation ||
+                          // Fallback: some legacy listings store owner via email, not id
+                          (ownerEmail && myEmail && ownerEmail === myEmail) || (reserverEmail && myEmail && reserverEmail === myEmail)
+                        ))
+                        if (!canChat) return null
+                        const activeFirst = reservations.find((r: any) => (r?.status || 'reserved') !== 'collected')
+                        const withRes = { ...(listing as any), __reservationId: myReservation?.id || (me === ownerId ? activeFirst?.id : undefined) }
+                        return (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            className="flex-1 bg-emerald-600/10 text-emerald-700 hover:bg-emerald-600/20 h-10 font-medium border border-emerald-200"
+                            onClick={() => {
+                              setChatListing(withRes as any)
+                              setChatOpen(true)
+                            }}
+                          >
+                            Chat
+                          </Button>
+                        )
+                      })()}
+                    </div>
+                  </div>
                 </div>
               </CardContent>
             </Card>

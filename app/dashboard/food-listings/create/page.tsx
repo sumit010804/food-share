@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -49,6 +49,13 @@ export default function CreateFoodListingPage() {
   const [imagePreview, setImagePreview] = useState<string | null>(null)
   const [freshnessLabel, setFreshnessLabel] = useState<string | null>(null)
   const [freshnessProbs, setFreshnessProbs] = useState<Record<string, number> | null>(null)
+  const [freshnessLoading, setFreshnessLoading] = useState(false)
+  const [predictedImageUrl, setPredictedImageUrl] = useState<string | null>(null)
+
+  // Camera state
+  const [cameraOpen, setCameraOpen] = useState(false)
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+  const streamRef = useRef<MediaStream | null>(null)
 
   useEffect(() => {
     const userData = localStorage.getItem("user")
@@ -98,11 +105,12 @@ export default function CreateFoodListingPage() {
     setSuccess("")
 
     try {
-      // If user attached an image, send to freshness predictor API first
-      let uploadedImageUrl: string | undefined
-      let detectedFreshness: string | undefined
-      if (imageFile) {
+      // If we already predicted earlier, reuse it; else, if an image exists, run predictor now
+      let uploadedImageUrl: string | undefined = predictedImageUrl || undefined
+      let detectedFreshness: string | undefined = freshnessLabel || undefined
+      if (!uploadedImageUrl && imageFile) {
         try {
+          setFreshnessLoading(true)
           const fd = new FormData()
           fd.append('image', imageFile)
           const fresRes = await fetch('/api/freshness', { method: 'POST', body: fd })
@@ -112,12 +120,14 @@ export default function CreateFoodListingPage() {
             detectedFreshness = fresJson.label
             setFreshnessLabel(fresJson.label || null)
             setFreshnessProbs(fresJson.probabilities || null)
+            setPredictedImageUrl(fresJson.imageUrl || null)
           } else {
             setFreshnessLabel(fresJson.label || 'Unknown')
           }
         } catch (e) {
-          // Non-fatal
           setFreshnessLabel('Unknown')
+        } finally {
+          setFreshnessLoading(false)
         }
       }
 
@@ -162,6 +172,109 @@ export default function CreateFoodListingPage() {
   const handleLogout = () => {
     localStorage.removeItem("user")
     router.push("/")
+  }
+
+  // Camera controls
+  const startCamera = async () => {
+    try {
+      // Ensure any previous stream is stopped
+      stopCamera()
+      // Open UI container first so the <video> ref mounts
+      setCameraOpen(true)
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false })
+      streamRef.current = stream
+
+      const attach = () => {
+        const v = videoRef.current as (HTMLVideoElement & { srcObject?: MediaStream | null }) | null
+        if (!v) {
+          // Wait until the video element is mounted
+          return requestAnimationFrame(attach)
+        }
+        v.srcObject = stream
+        v.muted = true
+        v.playsInline = true
+        // autoplay hint for Safari/iOS
+        try { (v as any).autoplay = true } catch {}
+        v.play().catch(() => {})
+      }
+      attach()
+    } catch (e) {
+      console.warn('Camera error', e)
+      alert('Camera permission denied or unavailable.')
+      setCameraOpen(false)
+      stopCamera()
+    }
+  }
+
+  const stopCamera = () => {
+    try {
+      streamRef.current?.getTracks().forEach((t) => t.stop())
+    } catch {}
+    streamRef.current = null
+    if (videoRef.current) {
+      try { videoRef.current.pause() } catch {}
+      (videoRef.current as HTMLVideoElement & { srcObject?: MediaStream | null }).srcObject = null
+    }
+    setCameraOpen(false)
+  }
+
+  useEffect(() => {
+    // If camera UI just opened and we already have a stream (race), attach it
+    if (cameraOpen && streamRef.current && videoRef.current) {
+      const v = videoRef.current as HTMLVideoElement & { srcObject?: MediaStream | null }
+      v.srcObject = streamRef.current
+      v.muted = true
+      v.playsInline = true
+      try { (v as any).autoplay = true } catch {}
+      v.play().catch(() => {})
+    }
+    return () => {
+      // cleanup on unmount
+      if (!cameraOpen) return
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cameraOpen])
+
+  const predictFromFile = async (file: File) => {
+    try {
+      setFreshnessLoading(true)
+      const url = URL.createObjectURL(file)
+      setImagePreview(url)
+      const fd = new FormData()
+      fd.append('image', file)
+      const fresRes = await fetch('/api/freshness', { method: 'POST', body: fd })
+      const fresJson = await fresRes.json().catch(() => ({}))
+      if (fresRes.ok) {
+        setFreshnessLabel(fresJson.label || null)
+        setFreshnessProbs(fresJson.probabilities || null)
+        setPredictedImageUrl(fresJson.imageUrl || null)
+      } else {
+        setFreshnessLabel(fresJson.label || 'Unknown')
+      }
+    } catch (e) {
+      setFreshnessLabel('Unknown')
+    } finally {
+      setFreshnessLoading(false)
+    }
+  }
+
+  const capturePhoto = async () => {
+    const video = videoRef.current
+    if (!video) return
+    const canvas = document.createElement('canvas')
+    const width = video.videoWidth || 640
+    const height = video.videoHeight || 480
+    canvas.width = width
+    canvas.height = height
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    ctx.drawImage(video, 0, 0, width, height)
+    const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve as any, 'image/jpeg', 0.9))
+    if (!blob) return
+    const file = new File([blob], `capture_${Date.now()}.jpg`, { type: 'image/jpeg' })
+    setImageFile(file)
+    await predictFromFile(file)
+    stopCamera()
   }
 
   const getUserTypeColor = (userType: string) => {
@@ -416,32 +529,55 @@ export default function CreateFoodListingPage() {
 
               <div className="space-y-2">
                 <Label htmlFor="photo">Food Photo (optional)</Label>
-                <Input
-                  id="photo"
-                  type="file"
-                  accept="image/*;capture=camera"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0] || null
-                    setImageFile(f)
-                    setFreshnessLabel(null)
-                    setFreshnessProbs(null)
-                    if (f) {
-                      const url = URL.createObjectURL(f)
-                      setImagePreview(url)
-                    } else {
-                      setImagePreview(null)
-                    }
-                  }}
-                />
-                {imagePreview && (
-                  <div className="mt-2 flex items-center gap-3">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={imagePreview} alt="preview" className="h-24 w-24 object-cover rounded-md border" />
-                    {freshnessLabel && (
-                      <Badge className="bg-emerald-100 text-emerald-800">Freshness: {freshnessLabel}</Badge>
-                    )}
+                <div className="flex flex-col gap-2">
+                  <div className="flex gap-2">
+                    <Input
+                      id="photo"
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      onChange={async (e) => {
+                        const f = e.target.files?.[0] || null
+                        setImageFile(f)
+                        setFreshnessLabel(null)
+                        setFreshnessProbs(null)
+                        setPredictedImageUrl(null)
+                        if (f) {
+                          await predictFromFile(f)
+                        } else {
+                          setImagePreview(null)
+                        }
+                      }}
+                    />
+                    <Button type="button" variant="outline" onClick={startCamera}>
+                      Use Camera
+                    </Button>
                   </div>
-                )}
+
+          {cameraOpen && (
+                    <div className="relative border rounded-md overflow-hidden">
+            <video ref={videoRef} className="w-full h-64 bg-black object-cover" playsInline muted autoPlay />
+                      <div className="absolute bottom-2 left-2 right-2 flex gap-2 justify-between">
+                        <Button type="button" className="bg-cyan-800" onClick={capturePhoto}>Capture</Button>
+                        <Button type="button" variant="secondary" onClick={stopCamera}>Close</Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {imagePreview && (
+                    <div className="mt-2 flex items-center gap-3">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={imagePreview} alt="preview" className="h-24 w-24 object-cover rounded-md border" />
+                      {freshnessLoading ? (
+                        <Badge className="bg-emerald-100 text-emerald-800">Predicting…</Badge>
+                      ) : (
+                        freshnessLabel && (
+                          <Badge className="bg-emerald-100 text-emerald-800">Freshness: {freshnessLabel}</Badge>
+                        )
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div className="space-y-2">

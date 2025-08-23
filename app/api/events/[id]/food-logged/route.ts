@@ -2,9 +2,9 @@ import { type NextRequest, NextResponse } from "next/server"
 import { getDatabase } from "@/lib/mongodb"
 import { ObjectId } from "mongodb"
 
-export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const eventId = params.id
+  const { id: eventId } = await params
     const db = await getDatabase()
     const body = await request.json().catch(() => ({}))
 

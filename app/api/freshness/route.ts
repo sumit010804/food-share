@@ -8,8 +8,10 @@ export const runtime = 'nodejs'
 function runPythonPredictor(imagePath: string, modelPath?: string): Promise<{ label?: string; probabilities?: Record<string, number>; error?: string }>
 {
   return new Promise((resolve) => {
-    const scriptPath = path.join(process.cwd(), 'FOOD-FRESHNESS-master', 'predict_cli.py')
-    const python = process.env.PYTHON || 'python3'
+  const scriptPath = path.join(process.cwd(), 'FOOD-FRESHNESS-master', 'predict_cli.py')
+  // Prefer project venv Python if present, else fall back to system python3
+  const venvPython = path.join(process.cwd(), '.venv', 'bin', 'python')
+  const python = fs.existsSync(venvPython) ? venvPython : (process.env.PYTHON || 'python3')
     const args = [scriptPath, '--image', imagePath]
     if (modelPath) args.push('--model', modelPath)
 

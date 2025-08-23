@@ -1,16 +1,17 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getDatabase } from "@/lib/mongodb"
 
-export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
+// In Next.js 15+, dynamic route params must be awaited.
+export async function PATCH(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params
     const db = await getDatabase()
-    const notificationId = params.id
 
-    await db.collection("notifications").updateOne({ id: notificationId }, { $set: { read: true } })
+    await db.collection("notifications").updateOne({ id }, { $set: { read: true } })
 
     return NextResponse.json({
       message: "Notification marked as read",
-      notificationId,
+      notificationId: id,
     })
   } catch (error) {
     return NextResponse.json({ message: "Internal server error" }, { status: 500 })
