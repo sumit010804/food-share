@@ -790,7 +790,7 @@ export default function FoodListingsPage() {
               </DialogDescription>
             </DialogHeader>
             <div className="mt-2">
-              {chatListing && <ListingChat listingId={chatListing.id} />}
+              {chatListing && <ListingChat listingId={chatListing.id} reservationId={(chatListing as any).__reservationId} />}
             </div>
             <DialogFooter>
               <div className="w-full flex justify-end">

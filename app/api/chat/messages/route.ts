@@ -65,7 +65,8 @@ export async function POST(req: NextRequest) {
     const db = await getDatabase()
     const body = await req.json()
     const { listingId, reservationId, userId, userName, userEmail, text } = body || {}
-    if (!listingId || !userId || !text) return NextResponse.json({ message: 'Bad Request' }, { status: 400 })
+    // Accept either userId or userEmail for auth; require at least one identity
+    if (!listingId || !text || (!userId && !userEmail)) return NextResponse.json({ message: 'Bad Request' }, { status: 400 })
     // enforce lister <-> reserver only
     const orFilters: any[] = [{ id: listingId }]
     if (ObjectId.isValid(listingId)) orFilters.push({ _id: new ObjectId(listingId) })
@@ -86,12 +87,29 @@ export async function POST(req: NextRequest) {
       ok = !!(okById || okByEmail)
     }
     if (!ok) return NextResponse.json({ message: 'Forbidden' }, { status: 403 })
+    // Resolve sender id/name from email if id missing
+    let resolvedUserId: string | null = userId || null
+    let resolvedUserName: string | null = userName || null
+    if (!resolvedUserId && userEmail) {
+      try {
+        const sender = await db.collection('users').findOne({ email: userEmail })
+        if (sender) {
+          resolvedUserId = toStringId((sender as any)._id) || toStringId((sender as any).id) || null
+          if (!resolvedUserName) resolvedUserName = (sender as any).name || (sender as any).userName || null
+        }
+      } catch {}
+      if (!resolvedUserId) {
+        // fallback so messages can still thread; prefixed to avoid colliding with real ids
+        resolvedUserId = `email:${userEmail}`
+      }
+    }
+
     const msg = {
       id: Date.now().toString(),
       listingId,
       reservationId: reservationId || null,
-      userId,
-      userName: userName || 'User',
+      userId: resolvedUserId as string,
+      userName: resolvedUserName || userName || 'User',
       text: String(text).slice(0, 1000),
       createdAt: new Date().toISOString(),
     }

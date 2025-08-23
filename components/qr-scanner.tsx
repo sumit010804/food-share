@@ -30,10 +30,63 @@ export function QRScanner({ onScan }: QRScannerProps) {
   const [videoReady, setVideoReady] = useState(false)
   const [torchAvailable, setTorchAvailable] = useState(false)
   const [torchOn, setTorchOn] = useState(false)
+  const zxingReaderRef = useRef<any>(null)
+  const zxingControlsRef = useRef<any>(null)
 
   const startCamera = async () => {
     try {
       setError("")
+      // Prefer robust live scanning via ZXing (@zxing/browser)
+      try {
+        const { BrowserQRCodeReader } = await import('@zxing/browser') as any
+        if (BrowserQRCodeReader && videoRef.current) {
+          const codeReader = new BrowserQRCodeReader()
+          zxingReaderRef.current = codeReader
+          // Choose environment/back camera if available
+          let deviceId: string | null = null
+          try {
+            const devices = await BrowserQRCodeReader.listVideoInputDevices()
+            if (devices && devices.length) {
+              const back = devices.find((d: any) => /back|environment/i.test(d.label))
+              deviceId = (back || devices[devices.length - 1]).deviceId
+            }
+          } catch {}
+          const controls = await codeReader.decodeFromVideoDevice(deviceId, videoRef.current, (result: any, err: any, controlsCtx: any) => {
+            if (result?.getText) {
+              handleDecodedText(String(result.getText()))
+            }
+            // ignore decode errors; ZXing continues internally
+          })
+          zxingControlsRef.current = controls
+          // ensure videoReady + torch detection
+          await new Promise<void>((resolve) => {
+            const v = videoRef.current!
+            const onLoaded = () => resolve()
+            if (v.readyState >= 1) onLoaded(); else v.addEventListener('loadedmetadata', onLoaded, { once: true })
+          })
+          try { videoRef.current.setAttribute('playsinline', 'true') } catch {}
+          try { (videoRef.current as any).muted = true } catch {}
+          setVideoReady(true)
+          // capture stream for torch toggle
+          try {
+            const s = (videoRef.current as any).srcObject as MediaStream | null
+            if (s) {
+              streamRef.current = s
+              const track = s.getVideoTracks()[0]
+              const caps: any = (track && typeof track.getCapabilities === 'function') ? track.getCapabilities() : null
+              setTorchAvailable(!!(caps && caps.torch))
+            }
+          } catch {}
+          setIsScanning(true)
+          scanningRef.current = true
+          return
+        }
+      } catch (e) {
+        // ZXing not available or failed; fallback to legacy
+        console.warn('ZXing scanner failed, falling back to legacy', e)
+      }
+
+      // Legacy fallback: getUserMedia + jsQR/BarcodeDetector
       // Ensure jsQR is loaded before scanning begins
       if (!jsQRRef.current) {
         try {
@@ -44,7 +97,7 @@ export function QRScanner({ onScan }: QRScannerProps) {
         }
       }
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } }, // back camera if available
+        video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
       })
 
       if (videoRef.current) {
@@ -75,6 +128,15 @@ export function QRScanner({ onScan }: QRScannerProps) {
   }
 
   const stopCamera = () => {
+    // Stop ZXing controls if active
+    try {
+      if (zxingControlsRef.current && typeof zxingControlsRef.current.stop === 'function') {
+        zxingControlsRef.current.stop()
+      }
+    } catch {}
+    zxingControlsRef.current = null
+    zxingReaderRef.current = null
+
     if (streamRef.current) {
       try {
         if (torchOn) {
@@ -116,6 +178,8 @@ export function QRScanner({ onScan }: QRScannerProps) {
   }
 
   const scanForQRCode = () => {
+    // If ZXing is active, don't run legacy loop
+    if (zxingReaderRef.current) return
     if (!videoRef.current || !canvasRef.current || !isScanning || !scanningRef.current) return
 
     const video = videoRef.current
@@ -127,7 +191,7 @@ export function QRScanner({ onScan }: QRScannerProps) {
       return
     }
 
-    // Fast path: BarcodeDetector if supported
+  // Fast path: BarcodeDetector if supported
     const BarcodeDetectorCtor: any = (window as any).BarcodeDetector
     if (BarcodeDetectorCtor) {
       try {

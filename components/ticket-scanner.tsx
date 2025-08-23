@@ -24,8 +24,6 @@ export default function TicketScanner({ scannerId, expectedListingId: expectedFr
   const [torchAvailable, setTorchAvailable] = useState(false)
   const [torchOn, setTorchOn] = useState(false)
   const zxingRef = useRef<{ reader: any, controls: any } | null>(null)
-  const [debug, setDebug] = useState<{ bd?: boolean, jsqr?: boolean, zxing?: boolean, attempts?: number, last?: string }>({})
-  const attemptsRef = useRef(0)
   // For E2E: allow injecting a QR image data URL for decoding without camera
   const startTestImageLoop = (dataUrl: string) => {
     if (!jsQRRef.current) return false
@@ -114,14 +112,7 @@ export default function TicketScanner({ scannerId, expectedListingId: expectedFr
           const Reader = mod?.BrowserMultiFormatReader || mod?.BrowserQRCodeReader
           if (!Reader) return
           const reader = new Reader()
-          // Prefer current camera deviceId if known (back camera)
-          let deviceId: string | undefined
-          try {
-            const track = s.getVideoTracks()[0]
-            const settings: any = track?.getSettings?.()
-            deviceId = settings?.deviceId
-          } catch {}
-          const controls = await reader.decodeFromVideoDevice(deviceId, videoRef.current as HTMLVideoElement, (result: any) => {
+          const controls = await reader.decodeFromVideoDevice(undefined, videoRef.current as HTMLVideoElement, (result: any) => {
             if (!result || decodingRef.current || stopFlagRef.current || !isScanning) return
             try {
               const text = typeof result.getText === 'function' ? result.getText() : (result.text || String(result))
@@ -131,7 +122,6 @@ export default function TicketScanner({ scannerId, expectedListingId: expectedFr
             } catch {}
           })
           zxingRef.current = { reader, controls }
-          setDebug((d) => ({ ...d, zxing: true }))
         }
         startZXing()
       } catch {}
@@ -191,7 +181,7 @@ export default function TicketScanner({ scannerId, expectedListingId: expectedFr
     const video = videoRef.current
     if (stopFlagRef.current || !isScanning) return
 
-  // Start BarcodeDetector loop if supported
+    // Start BarcodeDetector loop if supported
     const BarcodeDetectorCtor = (window as any).BarcodeDetector
     if (BarcodeDetectorCtor) {
       let detector: any = null
@@ -206,7 +196,7 @@ export default function TicketScanner({ scannerId, expectedListingId: expectedFr
       }
 
       if (detector) {
-  const detectLoop = async () => {
+        const detectLoop = async () => {
           if (stopFlagRef.current || !isScanning || decodingRef.current) return
           try {
             const barcodes = await detector.detect(video)
@@ -227,7 +217,6 @@ export default function TicketScanner({ scannerId, expectedListingId: expectedFr
           requestAnimationFrame(detectLoop)
         }
         requestAnimationFrame(detectLoop)
-  setDebug((d) => ({ ...d, bd: true }))
       }
     }
 
@@ -247,22 +236,10 @@ export default function TicketScanner({ scannerId, expectedListingId: expectedFr
           const targetH = Math.floor((video.videoHeight || 480) * scale)
           canvas.width = targetW
           canvas.height = targetH
-          attemptsRef.current += 1
-          // Try center-crop first to enlarge the code region
-          const cropScale = 0.7
-          const cw = Math.floor(targetW * cropScale)
-          const ch = Math.floor(targetH * cropScale)
-          const cx = Math.floor((targetW - cw) / 2)
-          const cy = Math.floor((targetH - ch) / 2)
           ctx?.drawImage(video, 0, 0, targetW, targetH)
-          let img = ctx?.getImageData(cx, cy, cw, ch)
+          const img = ctx?.getImageData(0, 0, canvas.width, canvas.height)
           if (img) {
-            let code = jsQRRef.current(img.data, img.width, img.height)
-            if (!(code && code.data)) {
-              // Fallback: full frame
-              img = ctx?.getImageData(0, 0, targetW, targetH)
-              if (img) code = jsQRRef.current(img.data, img.width, img.height)
-            }
+            const code = jsQRRef.current(img.data, img.width, img.height)
             if (code && code.data) {
               decodingRef.current = true
               try {
@@ -274,7 +251,6 @@ export default function TicketScanner({ scannerId, expectedListingId: expectedFr
               return
             }
           }
-          setDebug((d) => ({ ...d, jsqr: true, attempts: attemptsRef.current, last: new Date().toLocaleTimeString() }))
         } catch {}
         requestAnimationFrame(step)
       }
@@ -366,10 +342,6 @@ export default function TicketScanner({ scannerId, expectedListingId: expectedFr
                 {/* hidden canvas for jsQR fallback */}
                 <canvas ref={canvasRef} className="hidden" />
                 <div className="absolute inset-0 border-2 border-emerald-400 rounded" />
-                {/* debug overlay (non-intrusive) */}
-                <div className="absolute bottom-1 left-1 text-[10px] text-white/80 bg-black/40 px-1 rounded">
-                  {`BD:${debug.bd ? 'Y' : 'n'} jsQR:${debug.jsqr ? 'Y' : 'n'} ZX:${debug.zxing ? 'Y' : 'n'} tries:${debug.attempts ?? 0}`}
-                </div>
               </div>
 
               <div className="flex gap-2">
@@ -407,27 +379,6 @@ export default function TicketScanner({ scannerId, expectedListingId: expectedFr
               </div>
 
               <div className="text-sm text-slate-600">If automatic camera scan fails, paste the QR token below and press Validate.</div>
-              <div className="text-xs text-slate-500">Or upload a clear photo of the QR:</div>
-              <input
-                type="file"
-                accept="image/*"
-                onChange={async (e) => {
-                  const file = e.target.files?.[0]
-                  if (!file) return
-                  try {
-                    const fr = new FileReader()
-                    fr.onload = () => {
-                      const url = String(fr.result)
-                      // Reuse test-image loop path for decoding
-                      stopFlagRef.current = false
-                      decodingRef.current = false
-                      startTestImageLoop(url)
-                    }
-                    fr.readAsDataURL(file)
-                  } catch {}
-                }}
-                className="text-xs"
-              />
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 <div>
                   <label className="block text-xs text-slate-500 mb-1">Expected Listing ID (optional, to enforce match)</label>
