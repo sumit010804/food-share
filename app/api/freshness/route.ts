@@ -61,7 +61,33 @@ export async function POST(request: NextRequest) {
     fs.writeFileSync(filePath, Buffer.from(arrayBuffer))
 
     if (isProd) {
-      // Deploy-safe path: compute a simple heuristic from file size and return a data URL
+      // If configured, forward to external freshness microservice (Python/TF) and return its result
+      const svc = process.env.FRESHNESS_API_URL
+    if (svc) {
+        try {
+      const buf = fs.readFileSync(filePath)
+      const b64 = buf.toString('base64')
+      const dataUrl = `data:image/${safeExt};base64,${b64}`
+          const fd = new FormData()
+          const blob = new Blob([buf], { type: (file as any).type || `image/${safeExt}` })
+          fd.append('image', blob, (file as any).name || filename)
+          const resp = await fetch(svc.replace(/\/$/, '') + '/predict', { method: 'POST', body: fd })
+          if (resp.ok) {
+            const data: any = await resp.json()
+            return NextResponse.json({
+              message: 'Predicted (service)',
+              label: data.label || data.prediction || 'Unknown',
+              probabilities: data.probabilities || data.class_probs || {},
+        imageUrl: data.imageUrl || dataUrl,
+            })
+          }
+          // Fall through to heuristic if service errors
+        } catch (e:any) {
+          // fall back to heuristic
+        }
+      }
+
+      // Deploy-safe fallback: compute a simple heuristic from file size and return a data URL
       const stat = fs.statSync(filePath)
       const { label, probs } = jsHeuristicFromSize(stat.size)
       const b64 = fs.readFileSync(filePath).toString('base64')
