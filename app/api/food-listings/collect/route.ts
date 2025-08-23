@@ -134,7 +134,16 @@ export async function POST(request: NextRequest) {
           // Keep the listing discoverable for remaining portions
           setUpdate.status = 'available'
         }
-        await foodListingsCol.updateOne({ _id: listingDoc._id }, { $set: setUpdate })
+        const updateOps: any = { $set: setUpdate }
+        // If this collection record is tied to a specific reservation, mark that reservation as collected
+        if (existing.reservationId) {
+          updateOps.$set['reservations.$[r].status'] = 'collected'
+        }
+        await foodListingsCol.updateOne(
+          { _id: listingDoc._id },
+          updateOps,
+          existing.reservationId ? { arrayFilters: [ { 'r.id': existing.reservationId } ] } as any : undefined
+        )
       }
 
       // Determine weight/quantity for the donation. Prefer explicit fields if present.

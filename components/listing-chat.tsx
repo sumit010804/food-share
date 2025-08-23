@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { io, type Socket } from "socket.io-client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -9,13 +9,14 @@ import { Card } from "@/components/ui/card"
 type Msg = {
   id: string
   listingId: string
+  reservationId?: string | null
   userId: string
   userName?: string
   text: string
   createdAt: string
 }
 
-export default function ListingChat({ listingId }: { listingId: string }) {
+export default function ListingChat({ listingId, reservationId }: { listingId: string; reservationId?: string }) {
   const [user] = useState(() => {
     try { return JSON.parse(localStorage.getItem('user') || '{}') } catch { return {} }
   }) as any
@@ -36,18 +37,20 @@ export default function ListingChat({ listingId }: { listingId: string }) {
     return ""
   }, [])
 
+  const fetchHistory = useCallback(async () => {
+    try {
+      const me = ''
+      const meEmail = ''
+      const resId = reservationId ? `&reservationId=${encodeURIComponent(reservationId)}` : ''
+      const res = await fetch(`/api/chat/messages?listingId=${encodeURIComponent(listingId)}${me}${meEmail}${resId}`)
+      const js = await res.json()
+      setMessages(js.messages || [])
+    } catch {}
+  }, [listingId, reservationId, user])
+
   useEffect(() => {
-  const fetchHistory = async () => {
-      try {
-    const me = user?.id ? `&userId=${encodeURIComponent(user.id)}` : ''
-    const meEmail = user?.email ? `&userEmail=${encodeURIComponent(user.email)}` : ''
-    const res = await fetch(`/api/chat/messages?listingId=${encodeURIComponent(listingId)}${me}${meEmail}`)
-        const js = await res.json()
-        setMessages(js.messages || [])
-      } catch {}
-    }
     fetchHistory()
-  }, [listingId])
+  }, [fetchHistory])
 
   useEffect(() => {
     if (!socketUrl) return
@@ -70,6 +73,19 @@ export default function ListingChat({ listingId }: { listingId: string }) {
     }
   }, [socketUrl, listingId])
 
+  // Poll when not connected to socket, and refresh on window focus
+  useEffect(() => {
+    if (connected) return
+    let interval: number | undefined
+    interval = window.setInterval(() => { fetchHistory() }, 3000)
+    const onFocus = () => { fetchHistory() }
+    window.addEventListener('focus', onFocus)
+    return () => {
+      if (interval) window.clearInterval(interval)
+      window.removeEventListener('focus', onFocus)
+    }
+  }, [connected, fetchHistory])
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
@@ -78,14 +94,18 @@ export default function ListingChat({ listingId }: { listingId: string }) {
     const value = text.trim()
     if (!value) return
     setText("")
-  const payload = { listingId, userId: user?.id || 'anon', userName: user?.name || 'User', userEmail: user?.email, text: value }
+    const payload = { listingId, reservationId, userId: user?.id || 'anon', userName: user?.name || 'User', userEmail: user?.email, text: value }
     if (socketRef.current && connected) {
       socketRef.current.emit('chat:message', payload)
     } else {
       // fallback: POST to API
-      try { await fetch('/api/chat/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }) } catch {}
+      try {
+        await fetch('/api/chat/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+        // pull canonical history right after send
+        await fetchHistory()
+      } catch {}
       // optimistic append; the next GET will reconcile
-      setMessages((prev) => [...prev, { ...payload, id: Date.now().toString(), createdAt: new Date().toISOString() }])
+      setMessages((prev) => [...prev, { ...payload, id: Date.now().toString(), createdAt: new Date().toISOString() } as Msg])
     }
     // hint the bell to refresh sooner
     try { window.dispatchEvent(new Event('notifications:refresh')) } catch {}

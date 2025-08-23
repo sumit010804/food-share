@@ -222,9 +222,10 @@ export default function FoodListingsPage() {
     return () => window.removeEventListener('listing:created', onListingCreated)
   }, [])
 
-  // Deep-link: open chat dialog when ?chat=<listingId> is present and user is authorized
+  // Deep-link: open chat dialog when ?chat=<listingId> (and optional reservationId) is present and user is authorized
   useEffect(() => {
     const targetId = searchParams?.get('chat')
+    const resId = searchParams?.get('reservationId')
     if (!targetId || listings.length === 0 || !user) return
     const listing = listings.find((l) => String(l.id) === String(targetId))
     if (!listing) return
@@ -234,11 +235,22 @@ export default function FoodListingsPage() {
     const ownerEmail = String((listing as any).createdByEmail || (listing as any).provider?.email || '')
     const reserverEmail = String((listing as any).reservedByEmail || '')
     const myEmail = String((user as any)?.email || '')
-    const canChat = listing.status === 'reserved' && (
-      me === ownerId || me === reserverId || (ownerEmail && myEmail && ownerEmail === myEmail) || (reserverEmail && myEmail && reserverEmail === myEmail)
+  const reservations = Array.isArray((listing as any).reservations) ? (listing as any).reservations as any[] : []
+    const myReservation = resId
+      ? reservations.find((r: any) => String(r.id) === String(resId))
+      : reservations.find((r: any) => String(r.by) === me || (r.byEmail && String(r.byEmail) === myEmail))
+  const hasActiveReservation = reservations.some((r: any) => (r?.status || 'reserved') !== 'collected')
+    const participant = (
+      me === ownerId ||
+      me === reserverId ||
+      !!myReservation ||
+      (ownerEmail && myEmail && ownerEmail === myEmail) ||
+      (reserverEmail && myEmail && reserverEmail === myEmail)
     )
+  const canChat = participant && (listing.status === 'reserved' || !!myReservation || (me === ownerId && hasActiveReservation))
     if (canChat) {
-      setChatListing(listing)
+      const withRes = { ...(listing as any), __reservationId: resId || (Array.isArray((listing as any).reservations) ? (listing as any).reservations.find((r: any) => String(r.by) === me || (r.byEmail && String(r.byEmail) === myEmail))?.id : undefined) }
+      setChatListing(withRes as any)
       setChatOpen(true)
     }
   }, [searchParams, listings, user])
@@ -583,20 +595,32 @@ export default function FoodListingsPage() {
                     const ownerEmail = String((listing as any).createdByEmail || (listing as any).provider?.email || '')
                     const reserverEmail = String((listing as any).reservedByEmail || '')
                     const myEmail = String(user?.email || '')
-                    const canChat = listing.status === 'reserved' && (
+                    // If partial reservations exist, allow chat when the current user is the owner or one of the reservations' by/byEmail
+                    const reservations = Array.isArray((listing as any).reservations) ? (listing as any).reservations as any[] : []
+                    const myReservation = reservations.find((r: any) => String(r.by) === me || (r.byEmail && String(r.byEmail) === myEmail))
+                    const hasActiveReservation = reservations.some((r: any) => (r?.status || 'reserved') !== 'collected')
+                    const canChat = (
+                      (
+                        ((listing as any).status === 'reserved') ||
+                        !!myReservation ||
+                        (me === ownerId && hasActiveReservation)
+                      ) && (
                       me === ownerId ||
                       me === reserverId ||
+                      !!myReservation ||
                       // Fallback: some legacy listings store owner via email, not id
                       (ownerEmail && myEmail && ownerEmail === myEmail) || (reserverEmail && myEmail && reserverEmail === myEmail)
-                    )
+                    ))
                     if (!canChat) return null
-                    return (
+        return (
                       <Button
                         size="sm"
                         variant="secondary"
                         className="flex-1 bg-emerald-600/10 text-emerald-700 hover:bg-emerald-600/20 h-10 font-medium border border-emerald-200"
                         onClick={() => {
-                          setChatListing(listing)
+          const activeFirst = reservations.find((r: any) => (r?.status || 'reserved') !== 'collected')
+          const withRes = { ...(listing as any), __reservationId: myReservation?.id || (me === ownerId ? activeFirst?.id : undefined) }
+                          setChatListing(withRes as any)
                           setChatOpen(true)
                         }}
                       >
@@ -678,7 +702,37 @@ export default function FoodListingsPage() {
                     <p className="font-medium text-emerald-800">{selectedListing.specialInstructions || selectedListing.contactInfo || 'None provided'}</p>
                   </div>
 
-                  {/* Chat moved to a dedicated dialog accessible via the Chat button on each card */}
+                  {/* Chat quick access inside details for owner/reserver */}
+                  {(() => {
+                    const listing: any = selectedListing
+                    const ownerId = String(listing.createdBy || listing.providerId || listing.donorId || '')
+                    const me = String((user as any)?.id || (user as any)?._id || '')
+                    const myEmail = String(user?.email || '')
+                    const ownerEmail = String(listing.createdByEmail || listing.provider?.email || '')
+                    const reservations = Array.isArray(listing.reservations) ? (listing.reservations as any[]) : []
+                    const myReservation = reservations.find((r) => String(r.by) === me || (r.byEmail && String(r.byEmail) === myEmail))
+                    const activeFirst = reservations.find((r) => (r?.status || 'reserved') !== 'collected')
+                    const isOwner = me === ownerId || (!!ownerEmail && ownerEmail === myEmail)
+                    const showChat = !!myReservation || (isOwner && !!activeFirst)
+                    if (!showChat) return null
+                    const resId = myReservation?.id || (isOwner ? activeFirst?.id : undefined)
+                    return (
+                      <div className="pt-2">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          className="bg-emerald-600/10 text-emerald-700 hover:bg-emerald-600/20 border border-emerald-200"
+                          onClick={() => {
+                            const withRes = { ...listing, __reservationId: resId }
+                            setChatListing(withRes as any)
+                            setChatOpen(true)
+                          }}
+                        >
+                          Open Chat
+                        </Button>
+                      </div>
+                    )
+                  })()}
                 </div>
 
                 {/* Right: provider / lister details */}

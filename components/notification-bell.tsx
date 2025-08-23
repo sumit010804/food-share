@@ -98,6 +98,8 @@ export function NotificationBell() {
         isRead: !!(n.read || n.isRead),
         createdAt: n.createdAt || n.created_at || new Date().toISOString(),
         priority: n.priority || "medium",
+        // attach reservationId for deep-linking of chat
+        reservationId: n.metadata?.reservationId,
       }))
 
       if (!mounted) return

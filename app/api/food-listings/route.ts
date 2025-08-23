@@ -62,7 +62,7 @@ export async function GET() {
         provider = { name: l.donorName };
       }
 
-      return {
+  return {
         id: l._id?.toString() || l.id,
         title: l.title,
         description: l.description,
@@ -99,14 +99,25 @@ export async function GET() {
   reservedAt: l.reservedAt || l.reservedAt || null,
         images: l.images || [],
         specialInstructions: l.specialInstructions || null,
-        statusHistory: l.statusHistory || null,
-  remainingQuantity: typeof l.remainingQuantity === 'number' ? l.remainingQuantity : undefined,
-  reservations: Array.isArray(l.reservations) ? l.reservations : undefined,
+  statusHistory: l.statusHistory || null,
         collectedBy: l.collectedBy || l.pickedUpBy || null,
         collectedAt: l.collectedAt || l.pickedUpAt || null,
         createdAt: l.createdAt || l._createdAt || null,
         updatedAt: l.updatedAt || null,
-        qrCode: l.qrCode || null,
+  qrCode: l.qrCode || null,
+  // Expose reservations for partial reservation support
+  reservations: Array.isArray(l.reservations)
+          ? l.reservations.map((r: any) => ({
+              id: r.id || (r._id ? String(r._id) : undefined),
+              qty: r.qty,
+              by: r.by || r.userId,
+              byName: r.byName || r.userName,
+              byEmail: r.byEmail || r.userEmail,
+              status: r.status || 'reserved',
+              at: r.at || r.reservedAt || null,
+            }))
+          : [],
+  remainingQuantity: typeof l.remainingQuantity === 'number' ? l.remainingQuantity : undefined,
   raw: l, // include raw document for any additional fields
       };
     });

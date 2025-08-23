@@ -26,6 +26,7 @@ interface Notification {
   title: string
   message: string
   foodListingId?: string
+  reservationId?: string
   isRead: boolean
   createdAt: string
   priority: "low" | "medium" | "high"
@@ -90,6 +91,7 @@ export default function NotificationsPage() {
         title: n.title || "",
         message: n.message || "",
         foodListingId: n.metadata?.listingId || n.listingId,
+        reservationId: n.metadata?.reservationId,
         isRead: typeof n.isRead === 'boolean' ? n.isRead : (typeof n.read === 'boolean' ? n.read : false),
         createdAt: n.createdAt || new Date().toISOString(),
         priority: (n.priority as any) || "medium",
@@ -429,8 +431,10 @@ export default function NotificationsPage() {
                   <CardContent className="p-4 cursor-pointer" onClick={() => {
                     // If this is a chat message with a listingId, deep-link to Food Listings chat
                     const listingId = (notification as any).foodListingId || (notification as any).listingId
+                    const resId = (notification as any).reservationId
                     if (notification.type === 'chat_message' && listingId) {
-                      router.push(`/dashboard/food-listings?chat=${encodeURIComponent(String(listingId))}`)
+                      const q = resId ? `&reservationId=${encodeURIComponent(String(resId))}` : ''
+                      router.push(`/dashboard/food-listings?chat=${encodeURIComponent(String(listingId))}${q}`)
                       return
                     }
                     if (notification.actionUrl) {
