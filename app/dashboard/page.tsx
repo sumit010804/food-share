@@ -124,6 +124,9 @@ export default function DashboardPage() {
           </div>
           <div className="flex items-center gap-4 ml-auto">
             <NotificationBell />
+            <Link href="/community">
+              <button className="bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 transition shadow-md">Community</button>
+            </Link>
             <ProfileCircle user={user} />
             {user && (
               <Badge className={`${getUserTypeColor(user.userType)} font-medium px-3 py-1 border hover-lift`}>
